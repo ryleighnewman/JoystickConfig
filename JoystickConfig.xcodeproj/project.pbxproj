@@ -1,0 +1,465 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0E46623A5B439FBDD3CC72FB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 686B462A282363F0A92B39CA /* IOKit.framework */; };
+		12F586F001E7C3D2B8750E19 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */; };
+		1D832C989E14A5A9DE291597 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8038B8B7970BB4B800991EE0 /* GameController.framework */; };
+		1F7C4BE8694DBEA3E836AF50 /* InputEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9953EE66C8AB92001E3C8F60 /* InputEvent.swift */; };
+		306FAA3C20CF616DF8599590 /* BindingRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D97FA28EE21F9D6A4DA2907A /* BindingRowView.swift */; };
+		3501D77D98DA73834FBEFB69 /* HIDLightController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1008D4FE7819632F4C378FD /* HIDLightController.swift */; };
+		35903CFFA9BFF5EB883BA3E8 /* JoystickGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1284DBD0DABB5A3E83845C /* JoystickGroupView.swift */; };
+		400237FA664F7DF515A5036A /* MappingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C5119FD097588A76BA1AD62 /* MappingEngine.swift */; };
+		4D20653BDBA1B3C512F4A4FA /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3F9303B5602B756C4652DF /* PresetStore.swift */; };
+		63FDB1C76F8F3C345A2365E5 /* ExamplePresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */; };
+		7E0199073833F2D9F20E23DB /* OutputAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEC52DE5A4CD75E782F3060 /* OutputAction.swift */; };
+		900FEE2FB264A318D065B39A /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9AFC638DF7D9B649E63CD4D /* KeyCodeMap.swift */; };
+		9946758A79335A6E3A9401B2 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 71988A22A35F0A3503235E60 /* CoreGraphics.framework */; };
+		99DFEFC3C45DB71FA7E58F26 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 726EEF6CFAA7F842D5D0B903 /* SettingsView.swift */; };
+		B272CB5AC52088595142272D /* KeyCodePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78B2AC33DEB3ABD558D03415 /* KeyCodePicker.swift */; };
+		CD148292D638DA4E358AE151 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2154449F218F9A156C2716 /* ContentView.swift */; };
+		CE610649378750D0BCCD4169 /* InputSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */; };
+		CF97327A192CF8FA603B8E98 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 86B1CDE4228157DC93E5DAF3 /* AppKit.framework */; };
+		D1BABA54C5FFEC5A13FA70B6 /* GameControllerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8207CB5F209C9B16F9F67675 /* GameControllerService.swift */; };
+		DBA89E693D7C54FEEBBE54DD /* ScanOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A55F49CC8E2B40BD0376ED9 /* ScanOverlayView.swift */; };
+		DFB21A4556458137C0DB216D /* JoystickConfigMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA725C5D236DDF6D38B1933 /* JoystickConfigMain.swift */; };
+		E753B7D373A453F72513C4A3 /* Preset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2207F21589E350202E2A6D /* Preset.swift */; };
+		F5507342D4D6DD92F3857308 /* PresetEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F45D143E9943FE3D2A6E7BD6 /* PresetEditorView.swift */; };
+		F6C48A5E5C669AC7A680582A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F5F37A9B969741FCE8A4F38A /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
+		1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExamplePresets.swift; sourceTree = "<group>"; };
+		1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSimulator.swift; sourceTree = "<group>"; };
+		2C5119FD097588A76BA1AD62 /* MappingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MappingEngine.swift; sourceTree = "<group>"; };
+		2D1E0B6F76951A694F29C04A /* JoystickConfig.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JoystickConfig.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4E2154449F218F9A156C2716 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5AEC52DE5A4CD75E782F3060 /* OutputAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputAction.swift; sourceTree = "<group>"; };
+		5B3F9303B5602B756C4652DF /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		686B462A282363F0A92B39CA /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		6A40EA3CD3A8811E78EDA424 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6EA725C5D236DDF6D38B1933 /* JoystickConfigMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoystickConfigMain.swift; sourceTree = "<group>"; };
+		71988A22A35F0A3503235E60 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		726EEF6CFAA7F842D5D0B903 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		78B2AC33DEB3ABD558D03415 /* KeyCodePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodePicker.swift; sourceTree = "<group>"; };
+		8038B8B7970BB4B800991EE0 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
+		8207CB5F209C9B16F9F67675 /* GameControllerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameControllerService.swift; sourceTree = "<group>"; };
+		86B1CDE4228157DC93E5DAF3 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		8C2207F21589E350202E2A6D /* Preset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preset.swift; sourceTree = "<group>"; };
+		9953EE66C8AB92001E3C8F60 /* InputEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEvent.swift; sourceTree = "<group>"; };
+		9A55F49CC8E2B40BD0376ED9 /* ScanOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanOverlayView.swift; sourceTree = "<group>"; };
+		9B1284DBD0DABB5A3E83845C /* JoystickGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoystickGroupView.swift; sourceTree = "<group>"; };
+		D97FA28EE21F9D6A4DA2907A /* BindingRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BindingRowView.swift; sourceTree = "<group>"; };
+		D9AFC638DF7D9B649E63CD4D /* KeyCodeMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodeMap.swift; sourceTree = "<group>"; };
+		F1008D4FE7819632F4C378FD /* HIDLightController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDLightController.swift; sourceTree = "<group>"; };
+		F45D143E9943FE3D2A6E7BD6 /* PresetEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetEditorView.swift; sourceTree = "<group>"; };
+		F5F37A9B969741FCE8A4F38A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F9384C09D1156887266DC160 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D832C989E14A5A9DE291597 /* GameController.framework in Frameworks */,
+				9946758A79335A6E3A9401B2 /* CoreGraphics.framework in Frameworks */,
+				CF97327A192CF8FA603B8E98 /* AppKit.framework in Frameworks */,
+				0E46623A5B439FBDD3CC72FB /* IOKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		63D57366C845FDBD709AA880 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2D1E0B6F76951A694F29C04A /* JoystickConfig.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		812098D41B7F365F3783EA21 /* JoystickConfig */ = {
+			isa = PBXGroup;
+			children = (
+				F5F37A9B969741FCE8A4F38A /* Assets.xcassets */,
+				6A40EA3CD3A8811E78EDA424 /* Info.plist */,
+				6EA725C5D236DDF6D38B1933 /* JoystickConfigMain.swift */,
+				84CA7AFC808DE0FA4D590CA6 /* Models */,
+				BCAF0E4B45D6C4B30929FA3E /* Resources */,
+				9C21B2EB3BCE07C2FA6F351B /* Services */,
+				E5C107AB0E6353D4741D9EA5 /* Views */,
+			);
+			path = JoystickConfig;
+			sourceTree = "<group>";
+		};
+		84CA7AFC808DE0FA4D590CA6 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				9953EE66C8AB92001E3C8F60 /* InputEvent.swift */,
+				D9AFC638DF7D9B649E63CD4D /* KeyCodeMap.swift */,
+				5AEC52DE5A4CD75E782F3060 /* OutputAction.swift */,
+				8C2207F21589E350202E2A6D /* Preset.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		8AF01C10AC20892908C67FFD /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				D97FA28EE21F9D6A4DA2907A /* BindingRowView.swift */,
+				0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */,
+				9B1284DBD0DABB5A3E83845C /* JoystickGroupView.swift */,
+				78B2AC33DEB3ABD558D03415 /* KeyCodePicker.swift */,
+				9A55F49CC8E2B40BD0376ED9 /* ScanOverlayView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		9C21B2EB3BCE07C2FA6F351B /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8207CB5F209C9B16F9F67675 /* GameControllerService.swift */,
+				F1008D4FE7819632F4C378FD /* HIDLightController.swift */,
+				1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */,
+				2C5119FD097588A76BA1AD62 /* MappingEngine.swift */,
+				5B3F9303B5602B756C4652DF /* PresetStore.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		BCAF0E4B45D6C4B30929FA3E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D0F230F7390AB0794F55CD5E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				86B1CDE4228157DC93E5DAF3 /* AppKit.framework */,
+				71988A22A35F0A3503235E60 /* CoreGraphics.framework */,
+				8038B8B7970BB4B800991EE0 /* GameController.framework */,
+				686B462A282363F0A92B39CA /* IOKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D9ED230EE7B5B9FF51E3CECE = {
+			isa = PBXGroup;
+			children = (
+				812098D41B7F365F3783EA21 /* JoystickConfig */,
+				D0F230F7390AB0794F55CD5E /* Frameworks */,
+				63D57366C845FDBD709AA880 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E5C107AB0E6353D4741D9EA5 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4E2154449F218F9A156C2716 /* ContentView.swift */,
+				F45D143E9943FE3D2A6E7BD6 /* PresetEditorView.swift */,
+				726EEF6CFAA7F842D5D0B903 /* SettingsView.swift */,
+				8AF01C10AC20892908C67FFD /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		020BF335B8620CA231106853 /* JoystickConfig */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EBF8D8EF943DAF5E110B70AA /* Build configuration list for PBXNativeTarget "JoystickConfig" */;
+			buildPhases = (
+				0B181C993C6692E901A0F565 /* Sources */,
+				573DA7520DCA5F52E036DE58 /* Resources */,
+				F9384C09D1156887266DC160 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JoystickConfig;
+			packageProductDependencies = (
+			);
+			productName = JoystickConfig;
+			productReference = 2D1E0B6F76951A694F29C04A /* JoystickConfig.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		53FA35EED570E5260895A071 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 11E8EE36D061ECC20ED86BE9 /* Build configuration list for PBXProject "JoystickConfig" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D9ED230EE7B5B9FF51E3CECE;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 63D57366C845FDBD709AA880 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				020BF335B8620CA231106853 /* JoystickConfig */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		573DA7520DCA5F52E036DE58 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F6C48A5E5C669AC7A680582A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0B181C993C6692E901A0F565 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				306FAA3C20CF616DF8599590 /* BindingRowView.swift in Sources */,
+				CD148292D638DA4E358AE151 /* ContentView.swift in Sources */,
+				12F586F001E7C3D2B8750E19 /* DebugLogView.swift in Sources */,
+				63FDB1C76F8F3C345A2365E5 /* ExamplePresets.swift in Sources */,
+				D1BABA54C5FFEC5A13FA70B6 /* GameControllerService.swift in Sources */,
+				3501D77D98DA73834FBEFB69 /* HIDLightController.swift in Sources */,
+				1F7C4BE8694DBEA3E836AF50 /* InputEvent.swift in Sources */,
+				CE610649378750D0BCCD4169 /* InputSimulator.swift in Sources */,
+				DFB21A4556458137C0DB216D /* JoystickConfigMain.swift in Sources */,
+				35903CFFA9BFF5EB883BA3E8 /* JoystickGroupView.swift in Sources */,
+				900FEE2FB264A318D065B39A /* KeyCodeMap.swift in Sources */,
+				B272CB5AC52088595142272D /* KeyCodePicker.swift in Sources */,
+				400237FA664F7DF515A5036A /* MappingEngine.swift in Sources */,
+				7E0199073833F2D9F20E23DB /* OutputAction.swift in Sources */,
+				E753B7D373A453F72513C4A3 /* Preset.swift in Sources */,
+				F5507342D4D6DD92F3857308 /* PresetEditorView.swift in Sources */,
+				4D20653BDBA1B3C512F4A4FA /* PresetStore.swift in Sources */,
+				DBA89E693D7C54FEEBBE54DD /* ScanOverlayView.swift in Sources */,
+				99DFEFC3C45DB71FA7E58F26 /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		21B1007DBFD0785EFAE2C06C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = JoystickConfig/JoystickConfig.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65JK8K8VGM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JoystickConfig/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joystickconfig.app;
+				PRODUCT_MODULE_NAME = JoystickConfig;
+				PRODUCT_NAME = JoystickConfig;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Debug;
+		};
+		880BDC11B8A5E77ED3981593 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		934C2A4BE473262621231870 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = JoystickConfig/JoystickConfig.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 65JK8K8VGM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JoystickConfig/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joystickconfig.app;
+				PRODUCT_MODULE_NAME = JoystickConfig;
+				PRODUCT_NAME = JoystickConfig;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Release;
+		};
+		995FF8C1288B271F02F5CB1E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		11E8EE36D061ECC20ED86BE9 /* Build configuration list for PBXProject "JoystickConfig" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				880BDC11B8A5E77ED3981593 /* Debug */,
+				995FF8C1288B271F02F5CB1E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EBF8D8EF943DAF5E110B70AA /* Build configuration list for PBXNativeTarget "JoystickConfig" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				21B1007DBFD0785EFAE2C06C /* Debug */,
+				934C2A4BE473262621231870 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 53FA35EED570E5260895A071 /* Project object */;
+}

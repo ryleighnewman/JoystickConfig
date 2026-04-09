@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+
+# Keys and secrets
+*.key
+*.p12
+*.cer
+*.mobileprovision
+*.certSigningRequest
+
+# Archives
+*.xcarchive
