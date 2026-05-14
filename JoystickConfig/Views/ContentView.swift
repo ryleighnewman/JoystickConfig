@@ -98,8 +98,16 @@ struct ContentView: View {
                         color: Self.controllerColors[index % Self.controllerColors.count],
                         info: controllerService.controllerDetails[index],
                         onSetLight: { r, g, b in
+                            controllerService.stopRGBCycle(at: index)
                             controllerService.setControllerLight(at: index, red: r, green: g, blue: b)
                         },
+                        onSetBrightness: { brightness in
+                            controllerService.setControllerBrightness(at: index, brightness: brightness)
+                        },
+                        onToggleRGB: {
+                            controllerService.toggleRGBCycle(at: index)
+                        },
+                        isRGBActive: controllerService.rgbCycleActive[index] == true,
                         onRefresh: {
                             controllerService.refreshControllers()
                         }
@@ -157,20 +165,24 @@ struct ContentView: View {
 
             Spacer()
 
-            HStack(spacing: 16) {
-                Link(destination: URL(string: "https://buymeacoffee.com/ryleighnewman")!) {
-                    Text("Donate")
+            Button {
+                HelpGuideWindowController.shared.show()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 11))
+                    Text("Help")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .underline(color: .secondary.opacity(0.5))
                 }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
 
-                Link(destination: URL(string: "https://github.com/ryleighnewman/JoystickConfig")!) {
-                    Text("GitHub")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .underline(color: .secondary.opacity(0.5))
-                }
+            Link(destination: URL(string: "https://github.com/ryleighnewman/JoystickConfig")!) {
+                Text("GitHub")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .underline(color: .secondary.opacity(0.5))
             }
 
             Spacer()
@@ -221,6 +233,9 @@ struct ContentView: View {
                     Text("Select a preset or create a new one")
                         .font(.title3)
                         .foregroundStyle(.secondary)
+                    Text("Use built-in presets, or create your own.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
 
                     Button("Create New Preset") {
                         let preset = presetStore.createPreset()
@@ -304,24 +319,29 @@ struct ControllerChipView: View {
     let color: Color
     let info: ControllerInfo?
     let onSetLight: (Float, Float, Float) -> Void
+    let onSetBrightness: (UInt8) -> Void
+    let onToggleRGB: () -> Void
+    let isRGBActive: Bool
     let onRefresh: () -> Void
 
     @State private var showPopover = false
 
-    // macOS System Settings default colors + extras
+    // Accurate light bar colors tuned to match actual DualSense LED output
     private static let lightPresets: [(name: String, r: Float, g: Float, b: Float)] = [
-        ("Orange", 1.0, 0.6, 0.0),
-        ("Blue", 0.0, 0.4, 1.0),
-        ("Red", 1.0, 0.2, 0.2),
-        ("Purple", 0.6, 0.2, 0.9),
-        ("Green", 0.2, 0.8, 0.2),
-        ("Yellow", 1.0, 0.9, 0.0),
-        ("Cyan", 0.0, 0.8, 0.8),
-        ("Pink", 1.0, 0.3, 0.5),
-        ("White", 1.0, 1.0, 1.0),
-        ("Off", 0.0, 0.0, 0.0),
+        ("Red",    1.0, 0.0, 0.0),
+        ("Orange", 1.0, 0.35, 0.0),
+        ("Yellow", 1.0, 0.7, 0.0),
+        ("Green",  0.0, 1.0, 0.0),
+        ("Cyan",   0.0, 1.0, 1.0),
+        ("Blue",   0.0, 0.0, 1.0),
+        ("Purple", 0.5, 0.0, 1.0),
+        ("Pink",   1.0, 0.0, 0.6),
+        ("White",  1.0, 1.0, 1.0),
+        ("Off",    0.0, 0.0, 0.0),
     ]
 
+    @State private var customColor = Color.blue
+    @State private var brightness: Double = 2
     @State private var uptimeTimer: Timer?
     @State private var uptimeText: String = ""
 
@@ -543,11 +563,12 @@ struct ControllerChipView: View {
     }
 
     private var lightColorSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Light Bar Color")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            // Preset color grid
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 8) {
                 ForEach(Self.lightPresets, id: \.name) { preset in
                     let swatchColor = preset.name == "Off" ? Color.gray.opacity(0.3) :
@@ -559,6 +580,78 @@ struct ControllerChipView: View {
                     )
                 }
             }
+
+            Divider()
+
+            // Custom color picker
+            HStack(spacing: 10) {
+                Text("Custom Color")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                ColorPicker("", selection: $customColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+
+                Button("Apply") {
+                    let nsColor = NSColor(customColor).usingColorSpace(.sRGB) ?? NSColor(customColor)
+                    let r = Float(nsColor.redComponent)
+                    let g = Float(nsColor.greenComponent)
+                    let b = Float(nsColor.blueComponent)
+                    onSetLight(r, g, b)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Divider()
+
+            // Brightness control
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Brightness")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "light.min")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+
+                    Picker("", selection: $brightness) {
+                        Text("Off").tag(0.0)
+                        Text("Dim").tag(1.0)
+                        Text("Bright").tag(2.0)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: brightness) { _, newValue in
+                        onSetBrightness(UInt8(newValue))
+                    }
+
+                    Image(systemName: "light.max")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Divider()
+
+            // RGB cycle mode
+            Button {
+                onToggleRGB()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isRGBActive ? "stop.circle.fill" : "rainbow")
+                        .foregroundStyle(isRGBActive ? .red : .secondary)
+                    Text(isRGBActive ? "Stop RGB Cycle" : "RGB Cycle")
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(isRGBActive ? .red : .accentColor)
         }
     }
 }

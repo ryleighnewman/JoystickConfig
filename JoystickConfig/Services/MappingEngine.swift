@@ -144,6 +144,7 @@ class MappingEngine: ObservableObject {
                             log("TOGGLE ON: \(inputKey) -> \(binding.outputs.map(\.serialized))", joystick: joystickIndex)
                             fireOutputs(binding.outputs, press: true)
                             toggleStates[bindKey] = true
+                            fireFeedback(for: binding, joystickIndex: joystickIndex)
                         }
                     }
                     // Keep firing continuous outputs while toggled on
@@ -155,6 +156,7 @@ class MappingEngine: ObservableObject {
                     if isActive {
                         if !wasActive {
                             log("TURBO START: \(inputKey) -> \(binding.outputs.map(\.serialized))", joystick: joystickIndex)
+                            fireFeedback(for: binding, joystickIndex: joystickIndex)
                         }
                         let rate = binding.turboRate ?? 10
                         let interval = 1.0 / Double(rate)
@@ -186,6 +188,7 @@ class MappingEngine: ObservableObject {
                         } else {
                             fireOutputs(binding.outputs, press: true)
                         }
+                        fireFeedback(for: binding, joystickIndex: joystickIndex)
                     } else if !isActive && wasActive {
                         log("RELEASE: \(inputKey)", joystick: joystickIndex)
                         if binding.macroSteps == nil && (binding.repeatCount ?? 1) <= 1 {
@@ -348,11 +351,14 @@ class MappingEngine: ObservableObject {
                 guard let axis = output.mouseAxis, let dir = output.mouseDirection else { continue }
                 let speed = output.speed ?? 6
 
+                // Variable sensitivity defaults to true for axis input (gives natural feel).
+                // When false, output fires at full speed once the axis crosses the deadzone.
+                let useVariable = binding?.variableSensitivity ?? (input.type == .axis)
+
                 var magnitude: Float = 1.0
-                if input.type == .axis, var axisValue = state.axes[input.index] {
+                if useVariable, input.type == .axis, var axisValue = state.axes[input.index] {
                     if binding?.invertAxis == true { axisValue = -axisValue }
                     magnitude = min(abs(axisValue), 1.0)
-                    // Apply sensitivity curve
                     if let curve = binding?.sensitivityCurve {
                         magnitude = abs(curve.apply(magnitude))
                     }
@@ -375,8 +381,10 @@ class MappingEngine: ObservableObject {
                 guard let axis = output.mouseAxis, let dir = output.mouseDirection else { continue }
                 let speed = output.speed ?? 6
 
+                let useVariable = binding?.variableSensitivity ?? (input.type == .axis)
+
                 var magnitude: Float = 1.0
-                if input.type == .axis, var axisValue = state.axes[input.index] {
+                if useVariable, input.type == .axis, var axisValue = state.axes[input.index] {
                     if binding?.invertAxis == true { axisValue = -axisValue }
                     magnitude = min(abs(axisValue), 1.0)
                     if let curve = binding?.sensitivityCurve {
@@ -400,6 +408,26 @@ class MappingEngine: ObservableObject {
             default:
                 break
             }
+        }
+    }
+
+    // MARK: - Feedback (Haptics + Speech)
+
+    /// Fire haptic and speech feedback for a binding press event.
+    private func fireFeedback(for binding: BindingModel, joystickIndex: Int) {
+        if binding.hapticEnabled == true,
+           joystickIndex < controllerService.connectedControllers.count {
+            let controller = controllerService.connectedControllers[joystickIndex]
+            let intensity = binding.hapticIntensity ?? 0.6
+            FeedbackService.shared.vibrate(controller: controller, intensity: intensity)
+        }
+
+        if binding.speechEnabled == true {
+            let phrase = binding.speechText?.isEmpty == false
+                ? binding.speechText!
+                : binding.input.serialized
+            let destination = binding.speechDestination ?? .mac
+            FeedbackService.shared.speak(phrase, destination: destination)
         }
     }
 }

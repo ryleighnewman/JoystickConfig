@@ -2,6 +2,10 @@
 
 Map any game controller to keyboard and mouse on macOS.
 
+## Available on the Mac App Store
+
+[<img src="https://tools.applemediaservices.com/api/badges/download-on-the-mac-app-store/black/en-us?size=250x83" alt="Download on the Mac App Store" height="60">](https://apps.apple.com/us/app/joystickconfig/id6761875440?mt=12)
+
 ## Overview
 
 JoystickConfig lets you use any game controller as a keyboard and mouse on your Mac. Plug in your controller, pick a preset, and go. Or build your own from scratch.
@@ -12,13 +16,17 @@ Works with DualSense (PS5), DualSense Edge, DualShock 4 (PS4), Xbox Wireless, an
 
 The main view shows all your presets on the left with a live status bar for connected controllers. You can see battery level, button count, axis count, and light bar status at a glance. Activate any preset with one click. The bottom panel is a live logger that shows engine activity, connected controllers, and input events in real time at 120Hz.
 
+![Controller Light Bar Customization](screenshots/controller_popover.png)
+
+Click any connected controller in the status bar to open the controller panel. From here you can change the light bar color with presets or a custom color picker, adjust brightness, or kick off an RGB cycle. The panel also shows controller type, button and axis counts, motion support, battery level, and the full list of raw button names exposed by the device.
+
+![Active Preset with Live Log](screenshots/active_preset.png)
+
+When you activate a preset, the engine starts polling at 120Hz and the live log on the right shows everything happening in real time. You can see which bindings are firing, the exact serialized output for each press, raw axis values, and timing information for every event. Useful for diagnosing why a binding is not firing or for confirming a macro is firing in the right order.
+
 ![Binding Editor](screenshots/binding_editor.png)
 
-The binding editor is where you set up your mappings. Hit Scan to detect a button press or axis movement from your controller, then assign it to a keyboard key, mouse button, mouse motion, or scroll wheel. Every binding has its own output type picker and value selector. You can add multiple outputs per input, reorder bindings with drag and drop, and duplicate or delete them individually.
-
-![Advanced Options](screenshots/advanced_options.png)
-
-Each binding has advanced options you can expand. Set per-axis deadzones with a slider, invert axes, and pick a sensitivity curve (linear, smooth, or aggressive). Toggle mode lets you press once to hold and press again to release. Turbo mode gives you rapid fire at a custom rate. You can set repeat count and delay per binding. The macro editor lets you chain multiple keystrokes in sequence with custom wait and hold times per step.
+The binding editor is where you set up your mappings. Hit Scan to detect a button press or axis movement from your controller, then assign it to a keyboard key, mouse button, mouse motion, or scroll wheel. Every binding has its own output type picker and value selector. You can add multiple outputs per input, reorder bindings with drag and drop, and duplicate or delete them individually. Each binding has advanced options to set per-axis deadzones, invert axes, pick a sensitivity curve, enable toggle mode, configure turbo rapid fire, set repeat count and delay, or build a macro sequence with custom wait and hold times per step.
 
 ## Features
 

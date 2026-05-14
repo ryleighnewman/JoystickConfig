@@ -6,10 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject var presetStore: PresetStore
     @EnvironmentObject var controllerService: GameControllerService
 
-    @State private var hasAccessibility = false
-    @State private var diagnosticResult = ""
-    @State private var showingDiagnostic = false
-
     var body: some View {
         TabView {
             generalTab
@@ -28,94 +24,31 @@ struct SettingsView: View {
                 }
         }
         .frame(width: 500, height: 400)
-        .onAppear {
-            hasAccessibility = InputSimulator.hasAccessibilityPermission
-        }
     }
 
     // MARK: - General
 
     private var generalTab: some View {
         Form {
-            Section("Permissions") {
-                HStack {
-                    Image(systemName: hasAccessibility ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(hasAccessibility ? .green : .red)
-                    Text("Accessibility Permission")
-                    Spacer()
-                    if !hasAccessibility {
-                        Button("Grant Permission") {
-                            InputSimulator.requestAccessibilityPermission()
-                            // Open the exact settings pane
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
-                            // Poll for change
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                hasAccessibility = InputSimulator.hasAccessibilityPermission
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                                hasAccessibility = InputSimulator.hasAccessibilityPermission
-                            }
-                        }
-                    } else {
-                        Text("Granted")
-                            .foregroundStyle(.green)
-                    }
-                }
-
-                Button("Re-check Permission") {
-                    hasAccessibility = InputSimulator.hasAccessibilityPermission
-                }
-                .font(.caption)
+            Section("Polling Rate") {
+                Text("Controller state is polled at 120 Hz for low-latency input.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Troubleshooting") {
-                Text("If inputs don't work after granting Accessibility:\n1. Open System Settings > Privacy & Security > Accessibility\n2. Remove old JoystickConfig entries\n3. Click + and add the app from DerivedData or /Applications\n4. Toggle it ON\n\nNote: Rebuilding in Xcode creates a new app signature.\nYou may need to re-grant permission after each rebuild.")
+            Section("Preset Storage") {
+                Text("Presets are saved as JSON in ~/Library/Application Support/JoystickConfig/presets.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Button("Run Diagnostic Test") {
-                    diagnosticResult = InputSimulator.runDiagnostic()
-                    showingDiagnostic = true
-                }
-
-                Button("Test: Move Mouse Right") {
-                    InputSimulator.shared.moveMouse(deltaX: 50, deltaY: 0)
-                }
-
-                Button("Test: Type 'A'") {
-                    InputSimulator.shared.keyDown(4) // HID code for 'A'
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        InputSimulator.shared.keyUp(4)
-                    }
+                Button("Show Presets in Finder") {
+                    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    let presetsDir = appSupport.appendingPathComponent("JoystickConfig/presets", isDirectory: true)
+                    NSWorkspace.shared.open(presetsDir)
                 }
             }
         }
         .padding()
-        .sheet(isPresented: $showingDiagnostic) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Diagnostic Results")
-                    .font(.headline)
-
-                Text(diagnosticResult)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-
-                Spacer()
-
-                HStack {
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(diagnosticResult, forType: .string)
-                    }
-                    Spacer()
-                    Button("Done") { showingDiagnostic = false }
-                }
-            }
-            .padding()
-            .frame(width: 450, height: 300)
-        }
     }
 
     // MARK: - Controllers
@@ -137,7 +70,7 @@ struct SettingsView: View {
                 ContentUnavailableView {
                     Label("No Controllers", systemImage: "gamecontroller")
                 } description: {
-                    Text("Connect a game controller to get started.")
+                    Text("Connect an adaptive or game controller to get started.")
                 }
             } else {
                 List {
@@ -173,6 +106,16 @@ struct SettingsView: View {
             Text("JoystickConfig")
                 .font(.largeTitle)
 
+            Text("Game Controller Configuration")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Text("Configure game controller buttons, triggers, and joysticks\nto behave as keyboard and mouse input on macOS.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
             Text("Created by Ryleigh Newman")
                 .font(.body)
 
@@ -193,14 +136,6 @@ struct SettingsView: View {
             Text("Contact me if you ever need anything")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            Link(destination: URL(string: "https://buymeacoffee.com/ryleighnewman")!) {
-                Text("Donate")
-                    .frame(minWidth: 100)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(.blue)
         }
         .padding()
     }

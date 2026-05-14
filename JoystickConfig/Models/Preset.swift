@@ -43,6 +43,19 @@ struct MacroStep: Identifiable, Codable, Hashable {
     }
 }
 
+/// Destination for spoken feedback when a binding fires
+enum SpeechDestination: String, Codable, CaseIterable, Identifiable {
+    case mac = "mac"
+    case controller = "controller"
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .mac: return "Mac Speakers"
+        case .controller: return "Controller Speaker"
+        }
+    }
+}
+
 /// A single input-to-output binding
 struct BindingModel: Identifiable, Codable, Hashable {
     let id: UUID
@@ -59,6 +72,17 @@ struct BindingModel: Identifiable, Codable, Hashable {
     var repeatCount: Int?        // Number of times to repeat outputs (nil = 1, 0 = infinite while held)
     var repeatDelayMs: Int?      // Delay between repeats in ms (default 100)
 
+    // Variable sensitivity: scale output magnitude by axis depth (0 to 1).
+    // When false, the configured speed/value is used at full magnitude after the deadzone.
+    var variableSensitivity: Bool?
+
+    // Feedback options
+    var hapticEnabled: Bool?     // Vibrate the controller when this binding fires
+    var hapticIntensity: Float?  // 0.0 to 1.0, default 0.6
+    var speechEnabled: Bool?     // Speak a phrase when this binding fires
+    var speechText: String?      // Phrase to speak (defaults to the input name)
+    var speechDestination: SpeechDestination?  // Where to play the speech
+
     // Macro sequence (overrides outputs when set)
     var macroSteps: [MacroStep]?
 
@@ -71,7 +95,12 @@ struct BindingModel: Identifiable, Codable, Hashable {
     init(id: UUID = UUID(), input: InputEvent, outputs: [OutputAction],
          deadzone: Float? = nil, invertAxis: Bool? = nil, toggleMode: Bool? = nil,
          turboEnabled: Bool? = nil, turboRate: Int? = nil, sensitivityCurve: SensitivityCurve? = nil,
-         repeatCount: Int? = nil, repeatDelayMs: Int? = nil, macroSteps: [MacroStep]? = nil) {
+         repeatCount: Int? = nil, repeatDelayMs: Int? = nil,
+         variableSensitivity: Bool? = nil,
+         hapticEnabled: Bool? = nil, hapticIntensity: Float? = nil,
+         speechEnabled: Bool? = nil, speechText: String? = nil,
+         speechDestination: SpeechDestination? = nil,
+         macroSteps: [MacroStep]? = nil) {
         self.id = id
         self.input = input
         self.outputs = outputs
@@ -83,6 +112,12 @@ struct BindingModel: Identifiable, Codable, Hashable {
         self.sensitivityCurve = sensitivityCurve
         self.repeatCount = repeatCount
         self.repeatDelayMs = repeatDelayMs
+        self.variableSensitivity = variableSensitivity
+        self.hapticEnabled = hapticEnabled
+        self.hapticIntensity = hapticIntensity
+        self.speechEnabled = speechEnabled
+        self.speechText = speechText
+        self.speechDestination = speechDestination
         self.macroSteps = macroSteps
     }
 }

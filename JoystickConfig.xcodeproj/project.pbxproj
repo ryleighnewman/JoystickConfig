@@ -24,6 +24,9 @@
 		B272CB5AC52088595142272D /* KeyCodePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78B2AC33DEB3ABD558D03415 /* KeyCodePicker.swift */; };
 		CD148292D638DA4E358AE151 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2154449F218F9A156C2716 /* ContentView.swift */; };
 		CE610649378750D0BCCD4169 /* InputSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */; };
+		FB10010001FEEDBACK000001 /* FeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB20010001FEEDBACK000001 /* FeedbackService.swift */; };
+		FB10010002HELPGUIDES00001 /* HelpGuides.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB20010002HELPGUIDES00001 /* HelpGuides.swift */; };
+		FB10010003HELPVIEW0000001 /* HelpGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB20010003HELPVIEW0000001 /* HelpGuideView.swift */; };
 		CF97327A192CF8FA603B8E98 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 86B1CDE4228157DC93E5DAF3 /* AppKit.framework */; };
 		D1BABA54C5FFEC5A13FA70B6 /* GameControllerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8207CB5F209C9B16F9F67675 /* GameControllerService.swift */; };
 		DBA89E693D7C54FEEBBE54DD /* ScanOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A55F49CC8E2B40BD0376ED9 /* ScanOverlayView.swift */; };
@@ -37,6 +40,9 @@
 		0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
 		1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExamplePresets.swift; sourceTree = "<group>"; };
 		1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSimulator.swift; sourceTree = "<group>"; };
+		FB20010001FEEDBACK000001 /* FeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackService.swift; sourceTree = "<group>"; };
+		FB20010002HELPGUIDES00001 /* HelpGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpGuides.swift; sourceTree = "<group>"; };
+		FB20010003HELPVIEW0000001 /* HelpGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpGuideView.swift; sourceTree = "<group>"; };
 		2C5119FD097588A76BA1AD62 /* MappingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MappingEngine.swift; sourceTree = "<group>"; };
 		2D1E0B6F76951A694F29C04A /* JoystickConfig.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JoystickConfig.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E2154449F218F9A156C2716 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -125,6 +131,7 @@
 		9C21B2EB3BCE07C2FA6F351B /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				FB20010001FEEDBACK000001 /* FeedbackService.swift */,
 				8207CB5F209C9B16F9F67675 /* GameControllerService.swift */,
 				F1008D4FE7819632F4C378FD /* HIDLightController.swift */,
 				1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */,
@@ -138,6 +145,7 @@
 			isa = PBXGroup;
 			children = (
 				1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */,
+				FB20010002HELPGUIDES00001 /* HelpGuides.swift */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -166,6 +174,7 @@
 			isa = PBXGroup;
 			children = (
 				4E2154449F218F9A156C2716 /* ContentView.swift */,
+				FB20010003HELPVIEW0000001 /* HelpGuideView.swift */,
 				F45D143E9943FE3D2A6E7BD6 /* PresetEditorView.swift */,
 				726EEF6CFAA7F842D5D0B903 /* SettingsView.swift */,
 				8AF01C10AC20892908C67FFD /* Components */,
@@ -243,8 +252,11 @@
 				CD148292D638DA4E358AE151 /* ContentView.swift in Sources */,
 				12F586F001E7C3D2B8750E19 /* DebugLogView.swift in Sources */,
 				63FDB1C76F8F3C345A2365E5 /* ExamplePresets.swift in Sources */,
+				FB10010001FEEDBACK000001 /* FeedbackService.swift in Sources */,
 				D1BABA54C5FFEC5A13FA70B6 /* GameControllerService.swift in Sources */,
 				3501D77D98DA73834FBEFB69 /* HIDLightController.swift in Sources */,
+				FB10010002HELPGUIDES00001 /* HelpGuides.swift in Sources */,
+				FB10010003HELPVIEW0000001 /* HelpGuideView.swift in Sources */,
 				1F7C4BE8694DBEA3E836AF50 /* InputEvent.swift in Sources */,
 				CE610649378750D0BCCD4169 /* InputSimulator.swift in Sources */,
 				DFB21A4556458137C0DB216D /* JoystickConfigMain.swift in Sources */,

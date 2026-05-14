@@ -11,18 +11,135 @@ import Foundation
 struct ExamplePresets {
     static var all: [Preset] {
         return [
+            desktopNavigation,
+            webBrowsing,
+            mouseScroll,
+            mediaController,
+            presentationRemote,
+            accessDesktopNavigation,
+            accessWebBrowsing,
+            adaptiveDesktop,
             minecraft,
             fortnite,
             fpsXbox,
             fpsPlayStation,
             fpsDualSense,
             racingGame,
-            webBrowsing,
-            desktopNavigation,
-            mouseScroll,
-            mediaController,
-            presentationRemote,
         ]
+    }
+
+    // MARK: - Custom Desktop Navigation 1
+
+    static var accessDesktopNavigation: Preset {
+        parse("""
+        {
+            "name": "Custom Desktop Navigation",
+            "tag": "Cursor, click, and macOS shortcuts",
+            "joysticks": [{
+                "tag": "Cursor, click, scroll, and macOS shortcuts",
+                "binds": {
+                    "axi 0 -": ["mou 0 - 14"],
+                    "axi 0 +": ["mou 0 + 14"],
+                    "axi 1 -": ["mou 1 - 14"],
+                    "axi 1 +": ["mou 1 + 14"],
+                    "axi 2 +": ["whe 0 + 4"],
+                    "axi 2 -": ["whe 0 - 4"],
+                    "axi 3 +": ["whe 1 + 4"],
+                    "axi 3 -": ["whe 1 - 4"],
+                    "axi 4 +": ["mbt 1"],
+                    "axi 5 +": ["mbt 0"],
+                    "btn 0": ["mbt 0"],
+                    "btn 1": ["mbt 1"],
+                    "btn 2": ["key 227", "key 6"],
+                    "btn 3": ["key 227", "key 27"],
+                    "btn 4": ["key 227", "key 43"],
+                    "btn 5": ["key 227", "key 25"],
+                    "hat 0 U": ["key 82"],
+                    "hat 0 D": ["key 81"],
+                    "hat 0 L": ["key 80"],
+                    "hat 0 R": ["key 79"],
+                    "btn 8": ["key 227", "key 44"],
+                    "btn 9": ["key 40"]
+                }
+            }]
+        }
+        """)
+    }
+
+    // MARK: - Custom Web Browsing
+
+    static var accessWebBrowsing: Preset {
+        parse("""
+        {
+            "name": "Custom Web Browsing",
+            "tag": "Browser navigation",
+            "joysticks": [{
+                "tag": "Cursor, scroll, tabs, and browser shortcuts",
+                "binds": {
+                    "axi 0 -": ["mou 0 - 14"],
+                    "axi 0 +": ["mou 0 + 14"],
+                    "axi 1 -": ["mou 1 - 14"],
+                    "axi 1 +": ["mou 1 + 14"],
+                    "axi 2 +": ["whe 0 + 5"],
+                    "axi 2 -": ["whe 0 - 5"],
+                    "axi 3 +": ["whe 1 + 5"],
+                    "axi 3 -": ["whe 1 - 5"],
+                    "btn 0": ["mbt 0"],
+                    "btn 1": ["mbt 1"],
+                    "btn 2": ["key 227", "key 26"],
+                    "btn 3": ["key 227", "key 23"],
+                    "btn 4": ["key 227", "key 54"],
+                    "btn 5": ["key 227", "key 55"],
+                    "axi 4 +": ["key 227", "key 55"],
+                    "axi 5 +": ["key 227", "key 225", "key 55"],
+                    "hat 0 U": ["key 82"],
+                    "hat 0 D": ["key 81"],
+                    "hat 0 L": ["key 80"],
+                    "hat 0 R": ["key 79"],
+                    "btn 8": ["key 227", "key 15"],
+                    "btn 9": ["key 43"]
+                }
+            }]
+        }
+        """)
+    }
+
+    // MARK: - Custom Desktop Navigation 2
+
+    static var adaptiveDesktop: Preset {
+        parse("""
+        {
+            "name": "Alternate Desktop Layout",
+            "tag": "Cursor, click, and shortcuts",
+            "joysticks": [{
+                "tag": "Cursor, click, scroll, and macOS shortcuts",
+                "binds": {
+                    "axi 0 -": ["mou 0 - 14"],
+                    "axi 0 +": ["mou 0 + 14"],
+                    "axi 1 -": ["mou 1 - 14"],
+                    "axi 1 +": ["mou 1 + 14"],
+                    "axi 2 +": ["whe 0 + 4"],
+                    "axi 2 -": ["whe 0 - 4"],
+                    "axi 3 +": ["whe 1 + 4"],
+                    "axi 3 -": ["whe 1 - 4"],
+                    "axi 4 +": ["mbt 1"],
+                    "axi 5 +": ["mbt 0"],
+                    "btn 0": ["mbt 0"],
+                    "btn 1": ["key 41"],
+                    "btn 2": ["key 227", "key 4"],
+                    "btn 3": ["key 227", "key 29"],
+                    "btn 4": ["key 227", "key 43"],
+                    "btn 5": ["key 227", "key 225", "key 43"],
+                    "hat 0 U": ["key 82"],
+                    "hat 0 D": ["key 81"],
+                    "hat 0 L": ["key 80"],
+                    "hat 0 R": ["key 79"],
+                    "btn 8": ["key 227", "key 44"],
+                    "btn 9": ["key 40"]
+                }
+            }]
+        }
+        """)
     }
 
     // MARK: - Minecraft

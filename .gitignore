@@ -19,3 +19,11 @@ xcuserdata/
 
 # Archives
 *.xcarchive
+
+# Editor / tooling
+.claude/
+.cursor/
+.vscode/
+
+# Compiled helper binary (rebuilt by build_and_archive.sh)
+LightHelper/LightHelper

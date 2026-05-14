@@ -35,6 +35,7 @@ class GameControllerService: ObservableObject {
     @Published var controllerNames: [Int: String] = [:]
     @Published var controllerDetails: [Int: ControllerInfo] = [:]
     @Published var lightColors: [Int: (r: Float, g: Float, b: Float)] = [:]
+    @Published var lightBrightness: [Int: UInt8] = [:] // 0=off, 1=dim, 2=bright
     @Published var lastInput: (joystickIndex: Int, inputEvent: InputEvent)?
     @Published var isScanning: Bool = false
 
@@ -110,7 +111,7 @@ class GameControllerService: ObservableObject {
             // Set light immediately
             setControllerLight(at: index)
 
-            // Retry after a delay — some controllers need time after connection
+            // Retry after a delay since some controllers need time after connection
             let idx = index
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.setControllerLight(at: idx)
@@ -241,31 +242,82 @@ class GameControllerService: ObservableObject {
         applyLight(at: index, red: red, green: green, blue: blue)
     }
 
-    /// Apply the light color via every available mechanism
-    private func applyLight(at index: Int, red: Float, green: Float, blue: Float) {
+    /// Set light brightness (0=off, 1=dim, 2=bright) by scaling the RGB values
+    func setControllerBrightness(at index: Int, brightness: UInt8) {
         guard index < connectedControllers.count else { return }
-        let controller = connectedControllers[index]
-
-        // Strategy 1: GCController.light API
-        if let light = controller.light {
-            light.color = GCColor(red: red, green: green, blue: blue)
-            #if DEBUG
-            print("[Light] GCController.light.color set to (\(red), \(green), \(blue))")
-            #endif
+        lightBrightness[index] = brightness
+        if let custom = lightColors[index] {
+            applyLight(at: index, red: custom.r, green: custom.g, blue: custom.b)
+        } else {
+            setControllerLight(at: index)
         }
+    }
 
-        // Strategy 2: Direct IOKit HID (corrected DualSense report offsets)
-        let r = UInt8(min(max(red * 255, 0), 255))
-        let g = UInt8(min(max(green * 255, 0), 255))
-        let b = UInt8(min(max(blue * 255, 0), 255))
-        HIDLightController.shared.setLightColor(red: r, green: g, blue: b, controllerIndex: index)
+    /// RGB cycle mode
+    @Published var rgbCycleActive: [Int: Bool] = [:]
+    private var rgbHue: Float = 0
 
-        // Strategy 3: Retry IOKit after a short delay (controller may need time to accept)
-        let idx = index
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self, idx < self.connectedControllers.count else { return }
-            HIDLightController.shared.setLightColor(red: r, green: g, blue: b, controllerIndex: idx)
+    func toggleRGBCycle(at index: Int) {
+        if rgbCycleActive[index] == true {
+            stopRGBCycle(at: index)
+        } else {
+            startRGBCycle(at: index)
         }
+    }
+
+    private func startRGBCycle(at index: Int) {
+        rgbCycleActive[index] = true
+        rgbHue = 0
+        cycleNextColor(at: index)
+    }
+
+    private func cycleNextColor(at index: Int) {
+        guard rgbCycleActive[index] == true else { return }
+
+        let (r, g, b) = Self.hsbToRGB(h: rgbHue, s: 1.0, b: 1.0)
+        lightColors[index] = (r: r, g: g, b: b)
+        applyLight(at: index, red: r, green: g, blue: b)
+        rgbHue += 0.08
+        if rgbHue > 1.0 { rgbHue -= 1.0 }
+
+        // Schedule next color after the helper finishes (~1.2s accounts for agent kill + restart)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.cycleNextColor(at: index)
+        }
+    }
+
+    func stopRGBCycle(at index: Int) {
+        rgbCycleActive[index] = false
+    }
+
+    private static func hsbToRGB(h: Float, s: Float, b: Float) -> (Float, Float, Float) {
+        let c = b * s
+        let x = c * (1 - abs(fmodf(h * 6, 2) - 1))
+        let m = b - c
+        let (r, g, bl): (Float, Float, Float)
+        switch Int(h * 6) % 6 {
+        case 0: (r, g, bl) = (c, x, 0)
+        case 1: (r, g, bl) = (x, c, 0)
+        case 2: (r, g, bl) = (0, c, x)
+        case 3: (r, g, bl) = (0, x, c)
+        case 4: (r, g, bl) = (x, 0, c)
+        default: (r, g, bl) = (c, 0, x)
+        }
+        return (r + m, g + m, bl + m)
+    }
+
+    /// Apply the light color via the LightHelper subprocess, scaling by brightness
+    private func applyLight(at index: Int, red: Float, green: Float, blue: Float) {
+        let brightness = lightBrightness[index] ?? 2
+        let scale: Float = switch brightness {
+        case 0: 0.0
+        case 1: 0.25
+        default: 1.0
+        }
+        let r = UInt8(min(max(red * scale * 255, 0), 255))
+        let g = UInt8(min(max(green * scale * 255, 0), 255))
+        let b = UInt8(min(max(blue * scale * 255, 0), 255))
+        HIDLightController.shared.setLightColor(red: r, green: g, blue: b)
     }
 
     // MARK: - Input Scanning
@@ -311,7 +363,7 @@ class GameControllerService: ObservableObject {
         return m
     }
 
-    /// Button names that are composites (D-pad, sticks) — not individual buttons
+    /// Button names that are composites (D-pad, sticks), not individual buttons
     private static let ignoredProfileNames: [String] = [
         "Direction Pad", "Left Thumbstick", "Right Thumbstick"
     ]
@@ -574,7 +626,7 @@ class GameControllerService: ObservableObject {
             if let r3 = gamepad.rightThumbstickButton { state.buttons[12] = r3.value }
 
             // --- Extra physical profile buttons (touchpad, mute, share, paddles, etc.) ---
-            // Uses pre-cached mapping built on connection — no sorting or matching at 120Hz
+            // Uses pre-cached mapping built on connection so no sorting or matching at 120Hz
             if let extras = cachedExtraButtons[index] {
                 for (button, btnIndex) in extras {
                     state.buttons[btnIndex] = button.value
@@ -619,4 +671,5 @@ class GameControllerService: ObservableObject {
         let digits = name.filter { $0.isNumber }
         return Int(digits) ?? 0
     }
+
 }

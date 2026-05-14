@@ -368,7 +368,9 @@ struct BindingRowView: View {
         binding.deadzone != nil || binding.invertAxis == true ||
         binding.toggleMode == true || binding.turboEnabled == true ||
         binding.sensitivityCurve != nil || (binding.repeatCount ?? 1) > 1 ||
-        (binding.macroSteps?.isEmpty == false)
+        (binding.macroSteps?.isEmpty == false) ||
+        binding.variableSensitivity != nil ||
+        binding.hapticEnabled == true || binding.speechEnabled == true
     }
 
     @ViewBuilder
@@ -382,11 +384,91 @@ struct BindingRowView: View {
                 Spacer()
             }
 
+            // Feedback section (haptic + speech)
+            HStack(spacing: 16) {
+                advancedFeedbackOptions
+                Spacer()
+            }
+
+            if binding.speechEnabled == true {
+                speechDetailRow
+            }
+
             if showMacroEditor {
                 macroEditorSection
             }
         }
         .padding(.leading, dragWidth + colGap)
+    }
+
+    @ViewBuilder
+    private var advancedFeedbackOptions: some View {
+        // Haptic toggle
+        Toggle(isOn: hapticBinding) {
+            HStack(spacing: 3) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 8))
+                Text("Vibrate")
+                    .font(.system(size: 9))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .toggleStyle(.checkbox)
+        .controlSize(.mini)
+        .help("Vibrate the controller when this binding fires (DualSense, DualSense Edge, and similar).")
+
+        if binding.hapticEnabled == true {
+            HStack(spacing: 4) {
+                Text("Strength")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Slider(value: hapticIntensityBinding, in: 0.1...1.0, step: 0.05)
+                    .frame(width: 60)
+                Text(String(format: "%.0f%%", (binding.hapticIntensity ?? 0.6) * 100))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 30)
+            }
+        }
+
+        // Speech toggle
+        Toggle(isOn: speechBinding) {
+            HStack(spacing: 3) {
+                Image(systemName: "speaker.wave.2")
+                    .font(.system(size: 8))
+                Text("Speak")
+                    .font(.system(size: 9))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .toggleStyle(.checkbox)
+        .controlSize(.mini)
+        .help("Speak a phrase out loud when this binding fires.")
+    }
+
+    @ViewBuilder
+    private var speechDetailRow: some View {
+        HStack(spacing: 10) {
+            Text("Phrase")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            TextField("Phrase to speak", text: speechTextBinding)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.mini)
+                .frame(maxWidth: 200)
+
+            Text("Output")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            Picker("", selection: speechDestinationBinding) {
+                Text("Mac").tag(SpeechDestination.mac)
+                Text("Controller").tag(SpeechDestination.controller)
+            }
+            .labelsHidden()
+            .controlSize(.mini)
+            .frame(width: 110)
+            Spacer()
+        }
     }
 
     @ViewBuilder
@@ -428,6 +510,16 @@ struct BindingRowView: View {
             .controlSize(.mini)
             .frame(width: 80)
         }
+
+        // Variable Sensitivity (scale output by axis depth)
+        Toggle(isOn: variableSensitivityBinding) {
+            Text("Variable")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
+        .toggleStyle(.checkbox)
+        .controlSize(.mini)
+        .help("Scale output speed by how far the joystick or trigger is pushed.")
     }
 
     @ViewBuilder
@@ -568,6 +660,50 @@ struct BindingRowView: View {
         SwiftUI.Binding(
             get: { binding.repeatDelayMs ?? 100 },
             set: { binding.repeatDelayMs = max(10, min(5000, $0)) }
+        )
+    }
+
+    private var variableSensitivityBinding: SwiftUI.Binding<Bool> {
+        // Default: true when input is an axis (matches engine behavior), false otherwise
+        let defaultValue = binding.input.type == .axis
+        return SwiftUI.Binding(
+            get: { binding.variableSensitivity ?? defaultValue },
+            set: { binding.variableSensitivity = $0 == defaultValue ? nil : $0 }
+        )
+    }
+
+    private var hapticBinding: SwiftUI.Binding<Bool> {
+        SwiftUI.Binding(
+            get: { binding.hapticEnabled ?? false },
+            set: { binding.hapticEnabled = $0 ? true : nil }
+        )
+    }
+
+    private var hapticIntensityBinding: SwiftUI.Binding<Double> {
+        SwiftUI.Binding(
+            get: { Double(binding.hapticIntensity ?? 0.6) },
+            set: { binding.hapticIntensity = Float($0) }
+        )
+    }
+
+    private var speechBinding: SwiftUI.Binding<Bool> {
+        SwiftUI.Binding(
+            get: { binding.speechEnabled ?? false },
+            set: { binding.speechEnabled = $0 ? true : nil }
+        )
+    }
+
+    private var speechTextBinding: SwiftUI.Binding<String> {
+        SwiftUI.Binding(
+            get: { binding.speechText ?? "" },
+            set: { binding.speechText = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private var speechDestinationBinding: SwiftUI.Binding<SpeechDestination> {
+        SwiftUI.Binding(
+            get: { binding.speechDestination ?? .mac },
+            set: { binding.speechDestination = $0 == .mac ? nil : $0 }
         )
     }
 
