@@ -2,7 +2,7 @@
 
 Map any game controller to keyboard and mouse on macOS.
 
-> InputConfig was previously called JoystickConfig. It is being re-released on the Mac App Store under the new name, so the download link is temporarily unavailable. It will be back as soon as the new version is approved.
+<a href="https://apps.apple.com/us/app/inputconfig/id6777759147?mt=12"><img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-mac-app-store/black/en-us" alt="Download on the Mac App Store" height="56"></a>
 
 ## Overview
 
