@@ -219,8 +219,7 @@ struct MotionCalibrationView: View {
                             Label("Activate motion sensors", systemImage: "bolt.fill")
                                 .font(.caption)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        .buttonStyle(.solidCompact)
                     }
 
                     if motion.hasRotationRate {
@@ -363,7 +362,7 @@ struct MotionCalibrationView: View {
         HStack(spacing: 12) {
             Image(systemName: "gyroscope")
                 .font(.title)
-                .foregroundStyle(.teal)
+                .iconTint(.teal)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Motion Calibration")
                     .font(.title2.weight(.semibold))
@@ -533,9 +532,11 @@ struct MotionCalibrationView: View {
                 Button("Cancel") {
                     withAnimation { awaitingConfirmation = false }
                 }
+                .buttonStyle(.solidSecondary)
                 .keyboardShortcut(.cancelAction)
             } else {
                 Button("Close") { dismiss() }
+                    .buttonStyle(.solidSecondary)
                     .keyboardShortcut(.cancelAction)
             }
 
@@ -567,8 +568,7 @@ struct MotionCalibrationView: View {
                     Label("Start Calibration", systemImage: "play.fill")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(awaitingConfirmation ? .green : .accentColor)
+            .buttonStyle(SolidButton(tint: awaitingConfirmation ? .green : .accentColor))
             .disabled(selectedKey == nil || captureInProgress)
             .animation(.easeOut(duration: 0.18), value: awaitingConfirmation)
         }

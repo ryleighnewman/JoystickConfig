@@ -417,8 +417,24 @@ class PresetStore: ObservableObject {
         // (or deleting one) made a fresh copy reappear on the next launch and
         // accumulate duplicates without bound.
         let exampleSeedKey = "InputConfig.seededExamples.v1"
-        if !defaults.bool(forKey: exampleSeedKey) {
-            for example in ExamplePresets.all where !existingNames.contains(example.name) {
+        // Per-example seed ledger: every example NAME that has ever been
+        // seeded on this install. Guarantees the two update-safety rules:
+        //   1. A built-in preset the user modified, renamed, or deleted is
+        //      NEVER re-added or replaced by any future app update.
+        //   2. Brand-new examples shipped in an update still arrive, exactly
+        //      once, because only never-ledgered names are seeded.
+        let ledgerKey = "InputConfig.seededExampleNames.v1"
+        var seededNames = Set(defaults.stringArray(forKey: ledgerKey) ?? [])
+        if seededNames.isEmpty && defaults.bool(forKey: exampleSeedKey) {
+            // Migration for installs that seeded before the ledger existed:
+            // stamp every currently-shipped example as already seeded, so
+            // nothing the user has since renamed or deleted comes back.
+            seededNames = Set(ExamplePresets.all.map(\.name))
+            defaults.set(Array(seededNames).sorted(), forKey: ledgerKey)
+        }
+        var ledgerDirty = false
+        for example in ExamplePresets.all where !seededNames.contains(example.name) {
+            if !existingNames.contains(example.name) {
                 var copy = example
                 if let groupName = ExamplePresets.groupAssignments[example.name],
                    let groupID = groupIDsByName[groupName] {
@@ -426,8 +442,11 @@ class PresetStore: ObservableObject {
                 }
                 savePreset(copy)
             }
-            defaults.set(true, forKey: exampleSeedKey)
+            seededNames.insert(example.name)
+            ledgerDirty = true
         }
+        if ledgerDirty { defaults.set(Array(seededNames).sorted(), forKey: ledgerKey) }
+        defaults.set(true, forKey: exampleSeedKey)
 
         // Step 3 (self-heal): make sure every built-in example preset that
         // belongs in a ship folder is actually in it. This only fixes presets

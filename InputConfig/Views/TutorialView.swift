@@ -45,17 +45,37 @@ struct SpotlightAnchorsKey: PreferenceKey {
     }
 }
 
+/// Reports this view's global frame as a spotlight anchor, but ONLY while a
+/// tutorial is actually running. When no tutorial is active (the normal case,
+/// and always during real use) it installs nothing - no GeometryReader, no
+/// global-frame preference - so the ~20 anchored views cost zero per-frame
+/// layout work. Leaving the readers always-on made every layout pass
+/// re-evaluate 20 global frames; in the large binding editor that never
+/// settled and hung the main thread.
+private struct SpotlightAnchorModifier: ViewModifier {
+    let id: String
+    @ObservedObject private var tutorial = TutorialState.shared
+
+    func body(content: Content) -> some View {
+        if tutorial.isActive {
+            content.background(
+                GeometryReader { geo in
+                    Color.clear
+                        .preference(
+                            key: SpotlightAnchorsKey.self,
+                            value: [SpotlightAnchor(id: id, frame: geo.frame(in: .global))]
+                        )
+                }
+            )
+        } else {
+            content
+        }
+    }
+}
+
 extension View {
     func spotlightAnchor(_ id: String) -> some View {
-        background(
-            GeometryReader { geo in
-                Color.clear
-                    .preference(
-                        key: SpotlightAnchorsKey.self,
-                        value: [SpotlightAnchor(id: id, frame: geo.frame(in: .global))]
-                    )
-            }
-        )
+        modifier(SpotlightAnchorModifier(id: id))
     }
 }
 
@@ -330,7 +350,7 @@ struct TutorialCardView: View {
                     Button("Skip") {
                         state.stop()
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.solidSecondaryCompact)
                     .foregroundStyle(.secondary)
                     // The header close button already exposes a single
                     // "Skip tutorial" action to VoiceOver; hide this
@@ -346,7 +366,7 @@ struct TutorialCardView: View {
                             Label("Back", systemImage: "chevron.left")
                                 .labelStyle(.titleAndIcon)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.solidSecondary)
                     }
 
                     Button {
@@ -360,15 +380,15 @@ struct TutorialCardView: View {
                                 .labelStyle(.titleAndIcon)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.solid)
                     .keyboardShortcut(.return, modifiers: [])
                 }
             }
             .padding(18)
             .frame(width: 400)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.panelRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: Metrics.panelRadius, style: .continuous)
                     .stroke(step.tint.opacity(0.45), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.4), radius: 20, y: 8)

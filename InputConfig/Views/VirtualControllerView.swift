@@ -1,4 +1,5 @@
 import SwiftUI
+import QuartzCore
 
 /// Live virtual-controller layout. Reads the latest `ControllerState` from
 /// `GameControllerService.currentStates[slot]` at 30 Hz and renders each
@@ -123,28 +124,32 @@ struct VirtualControllerView<Trailing: View>: View {
             // contents) → scaleEffect (scales background + contents
             // together) → offset (pans the whole thing). The outer
             // .frame just centers the scaled block within the column.
-            TimelineView(.periodic(from: Date(), by: 1.0 / 30.0)) { _ in
-                controllerLayout
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(LinearGradient(
-                                colors: [Color.secondary.opacity(0.08),
-                                         Color.secondary.opacity(0.03)],
-                                startPoint: .top, endPoint: .bottom))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .stroke(Color.secondary.opacity(0.18),
-                                            lineWidth: 0.5)
-                            )
-                            .overlay(gridOverlay)
-                            .allowsHitTesting(false)
-                    )
-                    .scaleEffect(visualizerScale, anchor: .center)
-                    .offset(x: panOffset.width + dragInProgress.width,
-                            y: panOffset.height + dragInProgress.height)
+            // CRITICAL: the visualizer's 30 fps clock PAUSES when the
+            // controller is idle. An always-on TimelineView re-laid-out the
+            // full widget tree 30x/second even for untouched controllers
+            // (pinning a core); a pure change-gate was choppy because SwiftUI
+            // doesn't invalidate on writes to state the body never reads.
+            // This hybrid keeps a real time-driven clock for buttery motion
+            // and flips `visualizerIdle` (which the body DOES read, via
+            // `paused:`) after ~0.7 s without a visible state change.
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: visualizerIdle || info == nil)) { _ in
+                visualizerPanelContent
             }
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .center)
+            .onReceive(Timer.publish(every: 1.0 / 30.0, on: .main,
+                                     in: .common).autoconnect()) { _ in
+                guard info != nil else { return }
+                let sig = Self.renderSignature(state)
+                if sig != lastRenderSignature {
+                    lastRenderSignature = sig
+                    lastSignatureChangeAt = CACurrentMediaTime()
+                    if visualizerIdle { visualizerIdle = false }
+                } else if !visualizerIdle,
+                          CACurrentMediaTime() - lastSignatureChangeAt > 0.7 {
+                    visualizerIdle = true
+                }
+            }
             // Drag the panel around when zoomed in past column bounds.
             .gesture(
                 DragGesture()
@@ -182,6 +187,14 @@ struct VirtualControllerView<Trailing: View>: View {
             let gx = s.motion[.gyroX] ?? 0
             let gy = s.motion[.gyroY] ?? 0
             let gz = s.motion[.gyroZ] ?? 0
+            // Idle gate with a NOISE DEADBAND, not an exact-zero test: a real
+            // controller's gyro reports tiny nonzero noise on every sample, so
+            // == 0 never triggered and the integrator dirtied this whole view
+            // 30x/second while two controllers sat untouched (main thread
+            // pegged, app-wide lag). Below the deadband there is no visible
+            // motion to integrate, so skip the @State writes entirely.
+            let deadband: Float = 0.02
+            if abs(gx) < deadband && abs(gy) < deadband && abs(gz) < deadband { return }
             let dt: Float = 1.0 / 30.0
             integratedPitch += gx * dt
             integratedYaw   += gy * dt
@@ -207,14 +220,10 @@ struct VirtualControllerView<Trailing: View>: View {
                 editMode.toggle()
                 openInspectorLabel = nil
             } label: {
-                Label(editMode ? "Done Editing" : "Customize Layout",
+                Label(editMode ? "Done Editing" : "Edit Layout",
                       systemImage: editMode ? "checkmark.circle.fill" : "pencil.and.outline")
-                    .font(.callout.weight(.medium))
-                    .padding(.horizontal, 4)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .tint(editMode ? .green : .blue)
+            .buttonStyle(SolidButton(tint: editMode ? .green : .blue, size: .compact))
             .help(editMode ? "Finish customizing" : "Drag widgets to rearrange the layout")
             .spotlightAnchor(SpotlightID.customizeButton)
 
@@ -226,8 +235,7 @@ struct VirtualControllerView<Trailing: View>: View {
                     Label("Reset", systemImage: "arrow.counterclockwise")
                         .font(.callout)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
+                .buttonStyle(.solidSecondary)
                 .help("Reset all widgets to their default position")
             }
 
@@ -245,7 +253,7 @@ struct VirtualControllerView<Trailing: View>: View {
                         .font(.caption)
                         .accessibilityHidden(true)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help("Shrink visualizer")
                 .accessibilityLabel("Shrink visualizer")
 
@@ -262,7 +270,7 @@ struct VirtualControllerView<Trailing: View>: View {
                         .font(.caption)
                         .accessibilityHidden(true)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help("Enlarge visualizer")
                 .accessibilityLabel("Enlarge visualizer")
             }
@@ -363,8 +371,48 @@ struct VirtualControllerView<Trailing: View>: View {
 
     // MARK: - Layout
 
+    /// Pauses the visualizer's 30 fps TimelineView when the controller has
+    /// shown no visible change for ~0.7 s. Read by the body (via `paused:`)
+    /// so transitions re-render correctly.
+    @State private var visualizerIdle: Bool = true
+    /// Last quantized state fingerprint + when it last moved. Plain change
+    /// bookkeeping for the idle detector.
+    @State private var lastRenderSignature: Int = 0
+    @State private var lastSignatureChangeAt: CFTimeInterval = 0
+
     private var state: ControllerState {
         controllerService.currentStates[slot] ?? ControllerState()
+    }
+
+    /// Order-independent hash of the state with every float snapped to a
+    /// 0.02 grid, so sensor noise (gyro jitter, stick drift) below visible
+    /// motion does not count as a change.
+    private static func renderSignature(_ s: ControllerState) -> Int {
+        func q(_ v: Float) -> Int { Int((v * 50).rounded()) }
+        var acc = 0
+        for (k, v) in s.buttons {
+            var h = Hasher(); h.combine(0); h.combine(k); h.combine(q(v))
+            acc ^= h.finalize()
+        }
+        for (k, v) in s.axes {
+            var h = Hasher(); h.combine(1); h.combine(k); h.combine(q(v))
+            acc ^= h.finalize()
+        }
+        for (k, v) in s.hats {
+            var h = Hasher(); h.combine(2); h.combine(k)
+            h.combine(q(v.x)); h.combine(q(v.y))
+            acc ^= h.finalize()
+        }
+        for (k, v) in s.motion {
+            // Motion channels get a coarser 0.1 grid: gyro/attitude sensor
+            // noise straddles 0.02 bins constantly, which kept the fingerprint
+            // flickering and defeated the idle pause whenever a DualSense was
+            // connected. Visible rotation easily exceeds 0.1; noise does not.
+            var h = Hasher(); h.combine(3); h.combine(k)
+            h.combine(Int((v * 10).rounded()))
+            acc ^= h.finalize()
+        }
+        return acc
     }
 
     private var info: ControllerInfo? {
@@ -422,6 +470,31 @@ struct VirtualControllerView<Trailing: View>: View {
         return counts.max(by: { $0.value < $1.value })?.key ?? .controller
     }
 
+    /// The visualizer panel chrome + content, extracted so the live
+    /// (TimelineView) and static (no controller) paths render the exact
+    /// same thing.
+    private var visualizerPanelContent: some View {
+        controllerLayout
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(LinearGradient(
+                        colors: [Color.secondary.opacity(0.08),
+                                 Color.secondary.opacity(0.03)],
+                        startPoint: .top, endPoint: .bottom))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.secondary.opacity(0.18),
+                                    lineWidth: 0.5)
+                    )
+                    .overlay(gridOverlay)
+                    .allowsHitTesting(false)
+            )
+            .scaleEffect(visualizerScale, anchor: .center)
+            .offset(x: panOffset.width + dragInProgress.width,
+                    y: panOffset.height + dragInProgress.height)
+    }
+
     @ViewBuilder
     private var controllerLayout: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -464,7 +537,7 @@ struct VirtualControllerView<Trailing: View>: View {
             )) {
                 Label("Auto-detect", systemImage: "wand.and.stars")
                     .tag(SlotInputKind.auto)
-                Label("Controller", systemImage: "gamecontroller")
+                Label { Text("Controller") } icon: { MenuIcon(name: "gamecontroller") }
                     .tag(SlotInputKind.controller)
                 Label("Keyboard (macOS)", systemImage: "keyboard")
                     .tag(SlotInputKind.keyboard)
@@ -481,7 +554,7 @@ struct VirtualControllerView<Trailing: View>: View {
             Spacer(minLength: 0)
             if currentKind != .auto {
                 Button("Reset to auto") { onChangeInputKind?(slot, .auto) }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.solidSecondaryCompact)
                     .controlSize(.small)
                     .help("Use the binding-type majority to pick the template automatically.")
             }
@@ -489,6 +562,12 @@ struct VirtualControllerView<Trailing: View>: View {
         .padding(.horizontal, 4)
         .spotlightAnchor(SpotlightID.templatePicker)
     }
+
+    // The controller diagram is drawn whenever we are in the controller
+    // template: either a physical controller is attached, or the slot has
+    // bindings to visualize. Without this, selecting Controller with nothing
+    // plugged in rendered a blank panel.
+    private var showDiagram: Bool { info != nil || slotHasAnyBinding }
 
     private var slotHasAnyBinding: Bool {
         guard slot < preset.joysticks.count else { return false }
@@ -498,8 +577,7 @@ struct VirtualControllerView<Trailing: View>: View {
     @ViewBuilder
     private var emptyVisualizerPlaceholder: some View {
         VStack(spacing: 8) {
-            Image(systemName: "gamecontroller")
-                .font(.largeTitle)
+            ControllerGlyph(height: 26)
                 .foregroundStyle(.tertiary)
             Text("No controller connected for slot \(slot) and no bindings to visualize.")
                 .font(.caption)
@@ -721,7 +799,7 @@ struct VirtualControllerView<Trailing: View>: View {
             // mirror first, binding inspector second; hiding unbound
             // widgets made connected controllers look broken when a
             // preset only mapped a few inputs.
-            if info != nil {
+            if showDiagram {
                 HStack(alignment: .center, spacing: 16) {
                     VStack(spacing: 8) {
                         inspectable(label: "LT", events: [.axis(4, direction: .positive)]) {
@@ -759,7 +837,7 @@ struct VirtualControllerView<Trailing: View>: View {
             // Middle row: D-pad + all four face buttons. Always shown
             // when a controller is connected; press state lights the
             // glyph regardless of whether a binding exists.
-            if info != nil {
+            if showDiagram {
                 HStack(alignment: .center) {
                     inspectable(label: "D-pad", events: [
                         .hat(0, direction: .up), .hat(0, direction: .right),
@@ -780,7 +858,7 @@ struct VirtualControllerView<Trailing: View>: View {
 
             // Sticks row - both sticks always shown when a controller
             // is connected, even if no binding currently uses them.
-            if info != nil {
+            if showDiagram {
                 HStack(spacing: 18) {
                     inspectable(label: "Left stick", events: [
                         .axis(0, direction: .positive), .axis(0, direction: .negative),
@@ -1285,8 +1363,7 @@ struct VirtualControllerView<Trailing: View>: View {
                         Label("Open editor anyway", systemImage: "pencil")
                             .font(.caption)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.solidSecondaryCompact)
                     .help("Open the preset editor for this preset")
                 }
             } else {
@@ -1360,8 +1437,7 @@ struct VirtualControllerView<Trailing: View>: View {
                 Label("Reset gyroscope (re-zero now)", systemImage: "scope")
                     .font(.caption.weight(.medium))
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .buttonStyle(.solidCompact)
             .help("Sample the controller's current motion as the new resting baseline. Hold the controller flat and steady, then click.")
 
             if let msg = gyroResetFeedback {
@@ -1844,6 +1920,15 @@ private struct TouchpadWidget: View {
     /// Also enforces `maxTrailPoints` so a stuck timer can't grow the
     /// buffer unboundedly between prune sweeps.
     private func sampleAndPrune(now: Date) {
+        // Idle gate: with no finger on the pad and no fading trail left to
+        // prune, every line below is a no-op - but the array mutations still
+        // dirtied @State 60x/second and re-rendered the widget continuously
+        // while a touchpad controller was merely connected. Bail out first.
+        if TouchpadService.shared.currentPosition(finger: 0) == nil,
+           TouchpadService.shared.currentPosition(finger: 1) == nil,
+           trailF0.isEmpty, trailF1.isEmpty {
+            return
+        }
         if let p = TouchpadService.shared.currentPosition(finger: 0) {
             trailF0.append(TrailPoint(x: CGFloat(p.x), y: CGFloat(p.y), time: now))
         }

@@ -90,8 +90,11 @@ struct StatsView: View {
                 } label: {
                     Label("Reset Statistics", systemImage: "arrow.counterclockwise")
                 }
+                .buttonStyle(SolidButton(tint: .red, prominent: false, size: .compact))
+                .foregroundStyle(.red)
                 Spacer()
                 Button("Close") { dismiss() }
+                    .buttonStyle(.solidSecondary)
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 22)
@@ -112,6 +115,7 @@ struct StatsView: View {
         }
         .sheet(item: $selectedDetail) { detail in
             StatDetailSheet(detail: detail)
+                .glassBackground()
         }
     }
 
@@ -121,7 +125,7 @@ struct StatsView: View {
         HStack(spacing: 14) {
             Image(systemName: "chart.line.uptrend.xyaxis")
                 .font(.system(size: 28))
-                .foregroundStyle(Color.accentColor)
+                .iconTint(Color.accentColor)
                 .frame(width: 40, height: 40)
                 .background(
                     Circle().fill(Color.accentColor.opacity(0.15))
@@ -378,7 +382,7 @@ struct StatsView: View {
                                 maxCount: Int,
                                 barTint: Color) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
+            IconView(name: icon, glyphHeight: 12)
                 .foregroundStyle(iconColor)
                 .frame(width: 16)
                 .accessibilityHidden(true)
@@ -417,8 +421,8 @@ struct StatsView: View {
                 ForEach(top, id: \.name) { row in
                     let conns = service.stats.controllerConnectionCount[row.name] ?? 0
                     HStack(spacing: 10) {
-                        Image(systemName: "gamecontroller.fill")
-                            .foregroundStyle(.blue)
+                        ControllerGlyph(height: 14)
+                            .iconTint(.blue)
                             .accessibilityHidden(true)
                         Text(row.name)
                             .font(.callout)
@@ -627,8 +631,8 @@ struct StatsView: View {
                            tint: Color, hint: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .foregroundStyle(tint)
+                IconView(name: icon, glyphHeight: 12)
+                    .iconTint(tint)
                 Text(label)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -790,7 +794,7 @@ struct StatTileView: View {
                 HStack(spacing: 4) {
                     Image(systemName: detail.icon)
                         .font(.title3)
-                        .foregroundStyle(detail.tint)
+                        .iconTint(detail.tint)
                         .accessibilityHidden(true)
                     Spacer()
                     Image(systemName: "info.circle")
@@ -857,7 +861,7 @@ struct StatDetailSheet: View {
             HStack(spacing: 14) {
                 Image(systemName: detail.icon)
                     .font(.system(size: 38))
-                    .foregroundStyle(detail.tint)
+                    .iconTint(detail.tint)
                     .frame(width: 56, height: 56)
                     .background(detail.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 2) {
@@ -952,7 +956,7 @@ struct StatDetailSheet: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.solid)
             }
         }
         .padding(22)

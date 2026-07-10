@@ -53,7 +53,7 @@ struct SystemStatsPanel: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Reset") { stats.resetSessionStats() }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.solidSecondaryCompact)
                     .controlSize(.small)
                     .help("Zero out session uptime, peaks, averages, and energy estimate.")
             }
@@ -68,7 +68,7 @@ struct SystemStatsPanel: View {
                          color: cpuTint(for: c.averageCpuPercent))
                 statTile(label: "Peak CPU",
                          value: String(format: "%.1f%%", c.peakCpuPercent),
-                         hint: "Highest CPU% in session",
+                         hint: "Highest CPU% in session (100% = one core, like Activity Monitor)",
                          color: cpuTint(for: c.peakCpuPercent))
                 statTile(label: "Peak Mem",
                          value: String(format: "%.0f MB", c.peakMemoryMB),

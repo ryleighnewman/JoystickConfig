@@ -113,6 +113,11 @@ final class SystemStatsService: ObservableObject {
 
     private var timer: Timer?
     private var retainCount = 0
+    /// IOKit push notification that fires the moment the power source set
+    /// changes (plug / unplug), so the engine's auto rate switch and the
+    /// Settings readout react immediately instead of waiting for the next
+    /// 5-second poll tick.
+    private var powerChangeSource: CFRunLoopSource?
 
     /// Last task_info CPU snapshot - we diff against this to compute
     /// the percentage in the user-visible "% of one core" form
@@ -148,11 +153,41 @@ final class SystemStatsService: ObservableObject {
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+
+        // Push notification for plug / unplug. IOPS fires this callback the
+        // moment the power source set changes, so `power` updates immediately
+        // instead of waiting up to 5 s for the next poll tick. The context is
+        // unretained-safe: the source is torn down in stop(), and this
+        // singleton never deallocates anyway.
+        if powerChangeSource == nil {
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            if let src = IOPSNotificationCreateRunLoopSource({ ctx in
+                guard let ctx else { return }
+                let service = Unmanaged<SystemStatsService>.fromOpaque(ctx).takeUnretainedValue()
+                Task { @MainActor in service.powerSourcesDidChange() }
+            }, context)?.takeRetainedValue() {
+                CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+                powerChangeSource = src
+            }
+        }
     }
 
     private func stop() {
         timer?.invalidate()
         timer = nil
+        if let src = powerChangeSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+            powerChangeSource = nil
+        }
+    }
+
+    /// IOKit told us the power sources changed (plugged in / unplugged).
+    /// Resample immediately and reset the throttle window so the regular
+    /// 1 Hz tick doesn't double-sample right after.
+    private func powerSourcesDidChange() {
+        let now = Date()
+        samplePower(now: now)
+        lastPowerSampleAt = now.timeIntervalSince1970
     }
 
     // MARK: - Sampling
@@ -209,9 +244,10 @@ final class SystemStatsService: ObservableObject {
         let n = Double(sampleCount)
         c.averageCpuPercent += (cpu - c.averageCpuPercent) / n
         // Energy ≈ (CPU% / 100) * dt * watts. dt is 1.0 s here because
-        // the timer fires once per second. Saturated CPU% = 100% per
-        // core, so we normalize by core count to get a fractional
-        // package load.
+        // the timer fires once per second. cpu is in Activity Monitor
+        // convention (100 = one core), so dividing by cores*100 yields the
+        // fractional whole-package load. (With the old machine-normalized
+        // cpu this line divided by cores twice and undercounted energy.)
         let cores = Double(ProcessInfo.processInfo.activeProcessorCount)
         let frac = min(1.0, max(0.0, cpu / (cores * 100.0)))
         c.estimatedEnergyJoules += frac * 1.0 * estimatedPackageWatts
@@ -363,12 +399,14 @@ final class SystemStatsService: ObservableObject {
         let wallDelta = now - prevWall
         guard wallDelta > 0 else { return 0 }
         let cores = Double(max(1, ProcessInfo.processInfo.activeProcessorCount))
-        // Divide by core count so the result is 0-100% of total system
-        // capacity, matching the convention users expect from a CPU %
-        // readout. The clamp catches floating-point drift / sample
-        // race weirdness without letting an obviously bogus value past.
-        let pct = (cpuDelta / wallDelta) * 100.0 / cores
-        return max(0, min(pct, 100.0))
+        // Activity Monitor convention: 100% = one core saturated (so the
+        // value can exceed 100 on multicore work). The old version divided
+        // by core count, which read "6%" on a 16-core machine while the
+        // process was actually pegging a full core - directly contradicting
+        // ps/Activity Monitor and hiding real CPU problems. Clamp at
+        // cores*100 to catch sampling glitches.
+        let pct = (cpuDelta / wallDelta) * 100.0
+        return max(0, min(pct, cores * 100.0))
     }
 
     /// Returns (resident, virtual) memory in bytes for the current process.

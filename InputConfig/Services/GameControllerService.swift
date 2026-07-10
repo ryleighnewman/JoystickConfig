@@ -1435,7 +1435,24 @@ class GameControllerService: ObservableObject {
     /// path installs its own per-element handlers on top and clears them on
     /// exit; this profile-level handler is independent and survives that.
     private func installLiveInputHandler(for controller: GCController) {
-        controller.extendedGamepad?.valueChangedHandler = { _, _ in }
+        if let pad = controller.extendedGamepad {
+            pad.valueChangedHandler = { _, _ in }
+        } else {
+            // Profile-only devices (solo Joy-Con orientations, remote-class or
+            // adaptive hardware) need per-element no-op handlers for the same
+            // macOS 26 keep-values-fresh reason. Without this, the first scan's
+            // teardown left them permanently reading zeros until replug.
+            let profile = controller.physicalInputProfile
+            for (_, button) in profile.buttons {
+                button.valueChangedHandler = { _, _, _ in }
+            }
+            for (_, axis) in profile.axes {
+                axis.valueChangedHandler = { _, _ in }
+            }
+            for (_, dpad) in profile.dpads {
+                dpad.valueChangedHandler = { _, _, _ in }
+            }
+        }
     }
 
     // MARK: - Polling (for mapping engine)
@@ -1565,15 +1582,26 @@ class GameControllerService: ObservableObject {
                 }
             }
         } else {
-            // Physical input profile fallback for non-standard controllers
+            // Physical input profile fallback for non-standard controllers.
+            // CRITICAL: resolve names with the SAME chain the scan path uses
+            // (knownButtonMap first, digit extraction as last resort). The old
+            // digit-only fallback mapped every letter-named button ("Button B")
+            // to index 0, so anything scanned on these devices could never
+            // fire at runtime.
             let profile = controller.physicalInputProfile
             for (name, button) in profile.buttons {
-                let idx = extractButtonIndex(from: name)
+                let idx = Self.knownButtonMap[name] ?? extractButtonIndex(from: name)
                 state.buttons[idx] = button.value
             }
             for (name, axis) in profile.axes {
                 let idx = extractAxisIndex(from: name)
                 state.axes[idx] = axis.value
+            }
+            // D-pads were previously ignored here entirely, leaving hats dead
+            // on profile-only devices. GCControllerDirectionPad's yAxis is
+            // already up-positive (the app's hat convention).
+            for (hatIdx, entry) in profile.dpads.sorted(by: { $0.key < $1.key }).enumerated() {
+                state.hats[hatIdx] = (x: entry.value.xAxis.value, y: entry.value.yAxis.value)
             }
         }
 

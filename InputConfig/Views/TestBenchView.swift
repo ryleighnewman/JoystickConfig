@@ -51,7 +51,7 @@ struct TestBenchView: View {
                     Label(service.isRunning ? "Running..." : "Run All Tests",
                           systemImage: service.isRunning ? "hourglass" : "play.fill")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.solid)
                 .disabled(service.isRunning)
 
                 if !summary.isEmpty {
@@ -194,6 +194,7 @@ struct TestBenchView: View {
                         InputSimulator.shared.keyUp(4)
                     }
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Press Space") {
                     Task { @MainActor in
                         InputSimulator.shared.keyDown(44)
@@ -201,6 +202,7 @@ struct TestBenchView: View {
                         InputSimulator.shared.keyUp(44)
                     }
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Press Cmd+A") {
                     Task { @MainActor in
                         InputSimulator.shared.keyDown(227) // Left Cmd
@@ -210,14 +212,17 @@ struct TestBenchView: View {
                         InputSimulator.shared.keyUp(227)
                     }
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
             HStack(spacing: 10) {
                 Button("Move mouse right 100px") {
                     InputSimulator.shared.moveMouse(deltaX: 100, deltaY: 0)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Move mouse down 100px") {
                     InputSimulator.shared.moveMouse(deltaX: 0, deltaY: 100)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Left click") {
                     Task { @MainActor in
                         InputSimulator.shared.mouseButtonDown(0)
@@ -225,9 +230,11 @@ struct TestBenchView: View {
                         InputSimulator.shared.mouseButtonUp(0)
                     }
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Scroll up 5x") {
                     InputSimulator.shared.scrollWheel(deltaX: 0, deltaY: -5)
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
         }
     }
@@ -266,12 +273,15 @@ struct TestBenchView: View {
                 Button("Note On") {
                     MIDIService.shared.sendNoteOn(note: midiNote, velocity: 100, channel: midiChannel)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Note Off") {
                     MIDIService.shared.sendNoteOff(note: midiNote, channel: midiChannel)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("All Notes Off") {
                     MIDIService.shared.releaseAllNotes()
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
 
             HStack(spacing: 10) {
@@ -292,12 +302,15 @@ struct TestBenchView: View {
                 Button("Pitch Bend Up") {
                     MIDIService.shared.sendPitchBend(value: 16383, channel: midiChannel)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Pitch Bend Center") {
                     MIDIService.shared.sendPitchBend(value: 8192, channel: midiChannel)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Pitch Bend Down") {
                     MIDIService.shared.sendPitchBend(value: 0, channel: midiChannel)
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
         }
     }
@@ -313,12 +326,15 @@ struct TestBenchView: View {
                         FeedbackService.shared.vibrate(controller: first, intensity: 0.7)
                     }
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Speak \"Hello\"") {
                     FeedbackService.shared.speak("Hello", destination: .mac)
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 Button("Speak \"Test\"") {
                     FeedbackService.shared.speak("Test 1 2 3", destination: .mac)
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
             Text("Vibration requires a controller with Core Haptics support (DualSense, DualSense Edge, etc.) connected.")
                 .font(.caption2)
@@ -353,7 +369,7 @@ struct TestBenchView: View {
                 Text(name).font(.caption)
             }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.solidSecondaryCompact)
     }
 }
 
@@ -372,11 +388,15 @@ final class TestBenchWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: TestBenchView())
+        let hosting = NSHostingController(rootView: TestBenchView()
+            .background(VisualEffectBackground().ignoresSafeArea()))
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "InputConfig Test Bench"
         newWindow.setContentSize(NSSize(width: 820, height: 600))
-        newWindow.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        // .fullSizeContentView lets the blur reach under the transparent
+        // titlebar so the top bar isn't see-through to the desktop.
+        newWindow.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+        newWindow.titlebarAppearsTransparent = true
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
         window = newWindow

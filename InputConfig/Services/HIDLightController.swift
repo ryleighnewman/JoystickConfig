@@ -232,7 +232,10 @@ final class InProcessLightWriter: @unchecked Sendable {
             self.writeLocked(red: red, green: green, blue: blue, brightness: 2)  // immediate
             guard self.holdTimer == nil else { return }
             let t = DispatchSource.makeTimerSource(queue: self.queue)
-            t.schedule(deadline: .now() + .milliseconds(5), repeating: .milliseconds(5), leeway: .milliseconds(1))
+            // 60 Hz is one re-assert per display frame - visually identical
+            // to the old 5 ms cadence at a third of the USB/BT bus traffic
+            // and CPU (this loop runs the whole time a preset holds a color).
+            t.schedule(deadline: .now() + .milliseconds(16), repeating: .milliseconds(16), leeway: .milliseconds(2))
             t.setEventHandler { [weak self] in
                 guard let self = self, let c = self.holdColor else { return }
                 self.writeLocked(red: c.r, green: c.g, blue: c.b, brightness: 2)
@@ -299,7 +302,7 @@ final class InProcessLightWriter: @unchecked Sendable {
                 bufDualSenseBT[1] = (sequenceTag << 4) | 0x02
                 bufDualSenseBT[2] = 0x00; bufDualSenseBT[3] = 0x04; bufDualSenseBT[40] = 0x06; bufDualSenseBT[43] = 0x02
                 bufDualSenseBT[44] = brightness; bufDualSenseBT[46] = red; bufDualSenseBT[47] = green; bufDualSenseBT[48] = blue
-                let crc = Self.crc32([0xA2, 0x31] + Array(bufDualSenseBT[1..<75]))
+                let crc = Self.crc32(prefix: [0xA2, 0x31], buffer: bufDualSenseBT, range: 1..<75)
                 bufDualSenseBT[75] = UInt8(crc & 0xFF); bufDualSenseBT[76] = UInt8((crc >> 8) & 0xFF)
                 bufDualSenseBT[77] = UInt8((crc >> 16) & 0xFF); bufDualSenseBT[78] = UInt8((crc >> 24) & 0xFF)
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x31, bufDualSenseBT, bufDualSenseBT.count)
@@ -309,7 +312,7 @@ final class InProcessLightWriter: @unchecked Sendable {
             } else if Self.ds4PIDs.contains(d.pid) && d.isBT {
                 bufDS4BT[0] = 0x11; bufDS4BT[1] = 0xC0; bufDS4BT[2] = 0x20; bufDS4BT[3] = 0xF3; bufDS4BT[4] = 0x04
                 bufDS4BT[7] = red; bufDS4BT[8] = green; bufDS4BT[9] = blue
-                let crc = Self.crc32([0xA2, 0x11] + Array(bufDS4BT[1..<75]))
+                let crc = Self.crc32(prefix: [0xA2, 0x11], buffer: bufDS4BT, range: 1..<75)
                 bufDS4BT[75] = UInt8(crc & 0xFF); bufDS4BT[76] = UInt8((crc >> 8) & 0xFF)
                 bufDS4BT[77] = UInt8((crc >> 16) & 0xFF); bufDS4BT[78] = UInt8((crc >> 24) & 0xFF)
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x11, bufDS4BT, bufDS4BT.count)
@@ -317,11 +320,24 @@ final class InProcessLightWriter: @unchecked Sendable {
         }
     }
 
-    private static func crc32(_ data: [UInt8]) -> UInt32 {
+    /// Precomputed CRC32 table - the old bit-serial loop did ~600 shifts per
+    /// packet on every hold tick.
+    private static let crcTable: [UInt32] = (0..<256).map { i -> UInt32 in
+        var c = UInt32(i)
+        for _ in 0..<8 { c = (c & 1 != 0) ? (c >> 1) ^ 0xEDB88320 : c >> 1 }
+        return c
+    }
+
+    /// CRC over `prefix` followed by `buffer[range]`, with zero heap
+    /// allocations (the old call site concatenated two fresh arrays per tick,
+    /// ~400 allocs/second per Bluetooth controller while holding a color).
+    private static func crc32(prefix: [UInt8], buffer: [UInt8], range: Range<Int>) -> UInt32 {
         var crc: UInt32 = 0xFFFFFFFF
-        for byte in data {
-            crc ^= UInt32(byte)
-            for _ in 0..<8 { crc = (crc & 1 != 0) ? (crc >> 1) ^ 0xEDB88320 : crc >> 1 }
+        for byte in prefix {
+            crc = (crc >> 8) ^ crcTable[Int((crc ^ UInt32(byte)) & 0xFF)]
+        }
+        for i in range {
+            crc = (crc >> 8) ^ crcTable[Int((crc ^ UInt32(buffer[i])) & 0xFF)]
         }
         return crc ^ 0xFFFFFFFF
     }

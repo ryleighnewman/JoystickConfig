@@ -48,6 +48,9 @@ struct ContentView: View {
     /// User opt-out for the launch explainer above. The persistent banner and
     /// the on-activation alert still cover them if they later need it.
     @AppStorage("suppressAccessibilityIntro") private var suppressAccessibilityIntro = false
+    /// Shows the developer activity log pinned under the detail pane. Off by
+    /// default so the shipping UI is clean; toggled from Settings → Advanced.
+    @AppStorage("InputConfig.showDebugLog") private var showDebugLog = false
     @State private var showingSmartMaker = false
     @State private var editingPreset: Preset?
     @State private var newlyCreatedPresetId: UUID?
@@ -147,6 +150,11 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .top) { accessibilityBanner }
+        // Hierarchical rendering across the whole app: every colored SF Symbol
+        // draws its tint at varying opacities (transparency in the secondary
+        // layers) instead of one flat solid fill. Set once at the root; the
+        // environment value propagates into every sheet and popover too.
+        .symbolRenderingMode(.hierarchical)
         .alert("Accessibility access needed", isPresented: $showAccessibilityAlert) {
             Button("Open Accessibility Settings") { accessibility.openSystemSettings() }
             Button("Not Now", role: .cancel) { }
@@ -155,6 +163,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingStats) {
             StatsView()
+                .glassBackground()
         }
         .sheet(isPresented: $showingSmartMaker) {
             SmartPresetMakerView { preset in
@@ -162,33 +171,45 @@ struct ContentView: View {
                 flashingPresetID = preset.id
                 NotificationCenter.default.post(name: .inputConfigScrollToPreset, object: preset.id)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    if flashingPresetID == preset.id { flashingPresetID = nil }
+                    if flashingPresetID == preset.id {
+                        withAnimation(.easeOut(duration: 0.9)) { flashingPresetID = nil }
+                    }
                 }
             }
             .environmentObject(presetStore)
             .environmentObject(controllerService)
+            .glassBackground()
         }
         .sheet(isPresented: $showingSettingsSheet) {
-            // Re-use the existing Settings TabView in a sheet so it's
-            // reachable from the toolbar in addition to the standard
-            // ⌘, menu shortcut.
-            SettingsView()
-                .environmentObject(presetStore)
-                .environmentObject(controllerService)
-                .frame(minWidth: 620, minHeight: 480)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingSettingsSheet = false }
-                    }
+            // Done lives in a translucent footer inside the sheet rather than
+            // the system confirmation bar, which draws its own opaque
+            // background and broke the frosted look at the bottom of Settings.
+            VStack(spacing: 0) {
+                SettingsView()
+                    .environmentObject(presetStore)
+                    .environmentObject(controllerService)
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Done") { showingSettingsSheet = false }
+                        .buttonStyle(.solid)
+                        .keyboardShortcut(.defaultAction)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .frame(minWidth: 620, minHeight: 480)
+            .glassBackground()
         }
         .sheet(isPresented: $showingTouchpadCalibrationFromMenu) {
             TouchpadCalibrationView()
                 .environmentObject(presetStore)
+                .glassBackground()
         }
         .sheet(isPresented: $showingMotionCalibrationFromMenu) {
             MotionCalibrationView()
                 .environmentObject(controllerService)
+                .glassBackground()
         }
         .alert(
             "Calibration recommended",
@@ -317,6 +338,7 @@ struct ContentView: View {
             .environmentObject(mappingEngine)
             .environmentObject(presetStore)
             .frame(minWidth: 1150, idealWidth: 1300, minHeight: 700, idealHeight: 800)
+            .glassBackground()
         }
         .onAppear {
             presetStore.reseedExamplePresets()
@@ -330,6 +352,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingAccessibilityIntro) {
             accessibilityIntroSheet
+                .glassBackground()
         }
         .sheet(item: $presentedDemoKind) { kind in
             FeatureDemoView(
@@ -349,6 +372,7 @@ struct ContentView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showingSettingsSheet = true }
                 }
             )
+            .glassBackground()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: GlobalHotKeyService.toggleNotification)) { _ in
@@ -383,7 +407,7 @@ struct ContentView: View {
             object: preset.id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             if flashingPresetID == preset.id {
-                flashingPresetID = nil
+                withAnimation(.easeOut(duration: 0.9)) { flashingPresetID = nil }
             }
         }
     }
@@ -465,7 +489,7 @@ struct ContentView: View {
                                     .font(.caption)
                                     .foregroundStyle(.red)
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.solidSecondaryCompact)
                             .padding(.top, 4)
                         } label: {
                             HStack(spacing: 6) {
@@ -479,6 +503,7 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .onReceive(NotificationCenter.default.publisher(for: .inputConfigScrollToPreset)) { note in
                 guard let id = note.object as? UUID else { return }
                 withAnimation(.easeOut(duration: 0.35)) {
@@ -498,7 +523,7 @@ struct ContentView: View {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     if flashingPresetID == id {
-                        flashingPresetID = nil
+                        withAnimation(.easeOut(duration: 0.9)) { flashingPresetID = nil }
                     }
                 }
             }
@@ -511,9 +536,11 @@ struct ContentView: View {
         .spotlightAnchor(SpotlightID.sidebar)
         .sheet(item: $creatingGroupForPreset) { preset in
             newGroupSheet(for: preset)
+                .glassBackground()
         }
         .sheet(item: $renamingGroup) { group in
             renameGroupSheet(for: group)
+                .glassBackground()
         }
     }
 
@@ -544,7 +571,19 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: tint == nil ? "folder" : "folder.fill")
                         .font(.caption)
-                        .foregroundStyle(tint ?? .secondary)
+                        // Liquid-glass folder chips: a vertical gradient of the
+                        // folder's own color (bright where light would catch the
+                        // top edge, deeper toward the base) rendered genuinely
+                        // see-through, so the frosted sidebar reads through the
+                        // icon instead of it sitting as a flat paint chip.
+                        .foregroundStyle(
+                            tint.map { c in
+                                AnyShapeStyle(LinearGradient(
+                                    colors: [c.opacity(0.95), c.opacity(0.45)],
+                                    startPoint: .top, endPoint: .bottom))
+                            } ?? AnyShapeStyle(.secondary)
+                        )
+                        .opacity(tint == nil ? 1 : 0.75)
                     Text(group.name)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -552,17 +591,10 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill((tint ?? .clear).opacity(tint == nil ? 0 : 0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke((tint ?? .clear).opacity(tint == nil ? 0 : 0.12), lineWidth: 0.5)
-                )
-                // Indent nested folders a little more per level so the
-                // hierarchy reads at a glance on top of List's own indent.
-                .padding(.leading, 12 + CGFloat(depth) * 10)
+                // Keep the folder icon tight to the disclosure arrow. Nesting
+                // depth is already conveyed by the List's own per-level indent,
+                // so no extra manual left-indent is added here.
+                .padding(.leading, 2)
                 .contentShape(Rectangle())
                 .contextMenu {
                     Button("Rename Folder...") {
@@ -719,8 +751,7 @@ struct ContentView: View {
                     presetStore.setGroupColor(group.id, color: Self.hexString(from: folderPickerColor))
                     colorEditingGroup = nil
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.solidCompact)
             }
 
             Divider()
@@ -730,11 +761,13 @@ struct ContentView: View {
                     presetStore.setGroupColor(group.id, color: nil)
                     colorEditingGroup = nil
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 if ExamplePresets.groupDefaultColors[group.name] != nil {
                     Button("Restore Default") {
                         presetStore.applyDefaultGroupColor(group.id)
                         colorEditingGroup = nil
                     }
+                    .buttonStyle(.solidSecondaryCompact)
                 }
                 Spacer()
             }
@@ -823,12 +856,23 @@ struct ContentView: View {
         .listRowInsets(EdgeInsets(top: 2, leading: leadingInset,
                                   bottom: 2, trailing: 2))
         .listRowBackground(
-            // Brief flash when the user jumps here from a feature demo.
-            RoundedRectangle(cornerRadius: 6)
+            // Brief flash when the user jumps here from a feature demo;
+            // otherwise a steady green hint marks the actively running
+            // preset. Matches the system selection pill exactly: same
+            // continuous-corner curvature and the same inset, so the green
+            // hint sits in the identical box the blue selection draws.
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(flashingPresetID == preset.id
                       ? Color.green.opacity(0.35)
-                      : Color.clear)
-                .animation(.easeOut(duration: 0.9), value: flashingPresetID)
+                      : (preset.isActive ? Color.green.opacity(0.16) : Color.clear))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 1)
+                // Deliberately NO implicit .animation here: List reuses row
+                // views while scrolling, and an animation keyed on isActive /
+                // flashingPresetID replayed the green fade on whichever preset
+                // was recycled into the old active row's slot (a green flash
+                // ~2/3 down the list while scrolling). The flash fade-out is
+                // driven explicitly with withAnimation where the flash clears.
         )
         .draggable(preset.id.uuidString)
         .dropDestination(for: String.self) { items, _ in
@@ -888,6 +932,7 @@ struct ContentView: View {
                     creatingGroupForPreset = nil
                     pendingGroupPresetIDs = []
                 }
+                .buttonStyle(.solidSecondary)
                 .keyboardShortcut(.cancelAction)
                 Button("Create") {
                     let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -921,6 +966,7 @@ struct ContentView: View {
                 Button("Cancel") {
                     renamingGroup = nil
                 }
+                .buttonStyle(.solidSecondary)
                 .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     let name = renameGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -929,6 +975,7 @@ struct ContentView: View {
                     }
                     renamingGroup = nil
                 }
+                .buttonStyle(.solid)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -966,7 +1013,7 @@ struct ContentView: View {
             if controllerService.connectedControllers.isEmpty
                 && controllerService.rawHIDGamepadSlots.isEmpty {
                 HStack(spacing: 6) {
-                    Image(systemName: "gamecontroller")
+                    ControllerGlyph(height: 13)
                         .foregroundStyle(.secondary)
                     Text("No controllers connected")
                         .font(.caption)
@@ -1020,7 +1067,7 @@ struct ContentView: View {
             // the menu bar icon's dropdown. Three indicators for the
             // same fact was visual noise.
         }
-        .background(.bar)
+        .background(.clear)
     }
 
     /// Sorted (slot index, gamepad) pairs for the raw HID controllers
@@ -1036,8 +1083,7 @@ struct ContentView: View {
     private func rawHIDChip(slot: Int, gamepad: RawHIDGamepad) -> some View {
         let color = Self.controllerColors[slot % Self.controllerColors.count]
         HStack(spacing: 8) {
-            Image(systemName: "gamecontroller.fill")
-                .font(.caption)
+            ControllerGlyph(height: 11)
                 .foregroundStyle(color)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -1056,7 +1102,7 @@ struct ContentView: View {
                         .font(.system(size: 9))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color.purple.opacity(0.15))
+                        .background(Color.secondary.opacity(0.15))
                         .foregroundStyle(.purple)
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
@@ -1103,12 +1149,12 @@ struct ContentView: View {
                 Button("Help") {
                     HelpGuideWindowController.shared.show()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.solidSecondaryCompact)
                 .controlSize(.mini)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color.orange.opacity(0.08))
+            .background(Color.secondary.opacity(0.08))
         }
     }
 
@@ -1173,7 +1219,6 @@ struct ContentView: View {
                 Text("GitHub")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .underline(color: .secondary.opacity(0.5))
             }
             .accessibilityLabel("GitHub")
             .accessibilityHint("Opens the project's GitHub repository in your browser")
@@ -1202,14 +1247,14 @@ struct ContentView: View {
                     .frame(width: 24, height: 24)
                     .contentShape(Circle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .spotlightAnchor(SpotlightID.importButton)
             .accessibilityLabel("Import preset")
             .accessibilityHint("Pick a preset JSON file to add to the library")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(.clear)
         .fileImporter(
             isPresented: $showingImportSheet,
             allowedContentTypes: [.json, .plainText],
@@ -1229,6 +1274,7 @@ struct ContentView: View {
         )) {
             ImportReviewSheet()
                 .environmentObject(presetStore)
+                .glassBackground()
         }
     }
 
@@ -1237,37 +1283,47 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         VStack(spacing: 0) {
-            if let presetId = selectedPresetId,
-               let preset = presetStore.presets.first(where: { $0.id == presetId }) {
-                PresetDetailView(
-                    preset: presetBinding(for: preset),
-                    onEdit: { editingPreset = preset },
-                    onToggle: { togglePreset(preset) },
-                    onJumpToBinding: { target in
-                        pendingEditorJump = target
-                        editingPreset = preset
-                    }
-                )
-                .environmentObject(mappingEngine)
-                .environmentObject(controllerService)
-                .environmentObject(presetStore)
-                // Key the detail view to the preset identity. Without this,
-                // switching presets reuses the same view instance and the
-                // editable title TextField animates/morphs from the old
-                // name to the new one - with .title2 that mid-flight
-                // reflow renders as a "downward distortion" of the title.
-                // A stable id gives each preset a fresh header instead.
-                .id(presetId)
-            } else {
-                welcomeView
+            // The scrolling detail content gets the canonical header fade so it
+            // dissolves into the window vibrancy under the transparent titlebar
+            // instead of colliding with the toolbar. Applied once here so both
+            // PresetDetailView and welcomeView inherit it; the developer log
+            // below sits outside the faded region.
+            Group {
+                if let presetId = selectedPresetId,
+                   let preset = presetStore.presets.first(where: { $0.id == presetId }) {
+                    PresetDetailView(
+                        preset: presetBinding(for: preset),
+                        onEdit: { editingPreset = preset },
+                        onToggle: { togglePreset(preset) },
+                        onJumpToBinding: { target in
+                            pendingEditorJump = target
+                            editingPreset = preset
+                        }
+                    )
+                    .environmentObject(mappingEngine)
+                    .environmentObject(controllerService)
+                    .environmentObject(presetStore)
+                    // Key the detail view to the preset identity. Without this,
+                    // switching presets reuses the same view instance and the
+                    // editable title TextField animates/morphs from the old
+                    // name to the new one - with .title2 that mid-flight
+                    // reflow renders as a "downward distortion" of the title.
+                    // A stable id gives each preset a fresh header instead.
+                    .id(presetId)
+                } else {
+                    welcomeView
+                }
             }
+            .headerFade()
 
-            // Log always visible at bottom
-            Divider()
-                .padding(.horizontal)
-            DebugLogView()
-                .environmentObject(mappingEngine)
-                .padding(.vertical, 8)
+            // Developer log, gated behind the Settings debug toggle.
+            if showDebugLog {
+                Divider()
+                    .padding(.horizontal)
+                DebugLogView()
+                    .environmentObject(mappingEngine)
+                    .padding(.vertical, 8)
+            }
         }
     }
 
@@ -1283,8 +1339,7 @@ struct ContentView: View {
             VStack(spacing: 24) {
                 // Headline
                 VStack(spacing: 10) {
-                    Image(systemName: "gamecontroller")
-                        .font(.system(size: 56))
+                    ControllerGlyph(height: 42)
                         .foregroundStyle(.tertiary)
                     Text("Welcome to InputConfig")
                         .font(.title2.weight(.semibold))
@@ -1311,19 +1366,17 @@ struct ContentView: View {
                         } label: {
                             Label("Create New Preset", systemImage: "plus")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.solid)
                         .spotlightAnchor(SpotlightID.createNew)
 
-                        // Smart Preset Maker: guided wizard. Toned down from the
-                        // filled prominent purple to a subtle purple-tinted
-                        // bordered button so it no longer overpowers the screen.
+                        // Smart Preset Maker: guided wizard, as a quiet secondary
+                        // capsule so it doesn't overpower the creation action.
                         Button {
                             showingSmartMaker = true
                         } label: {
                             Label("Smart Preset Maker", systemImage: "wand.and.stars")
                         }
-                        .buttonStyle(.bordered)
-                        .tint(.purple)
+                        .buttonStyle(.solidSecondary)
                         .help("Answer a few quick questions and we'll build a tailored preset for your game, app, or workflow")
                     }
 
@@ -1332,8 +1385,10 @@ struct ContentView: View {
                         Button("Quick Start Guide") {
                             startTutorial()
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.teal)
+                        // Sized to match the other welcome buttons. The hero
+                        // glass CTA (GlassCTAButton) is reserved for standalone
+                        // primary surfaces, not this grid of equal actions.
+                        .buttonStyle(SolidButton(tint: .teal))
                         .help("Guided walkthrough of every major feature with click animations")
 
                         Button {
@@ -1341,7 +1396,7 @@ struct ContentView: View {
                         } label: {
                             Label("Open Help Guide", systemImage: "questionmark.circle")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.solidSecondary)
                     }
                 }
 
@@ -1411,7 +1466,7 @@ struct ContentView: View {
                              tint: .purple)
                     demoCard(kind: .autoLaunch,
                              icon: "app.badge.fill",
-                             detail: "Per-preset Advanced Options: open an app on activate, confine the cursor, hide the system pointer.",
+                             detail: "Per-preset Automation & Gaming Utilities: open an app on activate, confine the cursor, hide the system pointer.",
                              tint: .green)
                     demoCard(kind: .stats,
                              icon: "chart.bar.fill",
@@ -1419,6 +1474,9 @@ struct ContentView: View {
                              tint: .brown)
                 }
                 .padding(.horizontal, 28)
+
+                QuickTipsPill()
+                    .padding(.horizontal, 40)
 
                 Text("Plug in a controller to get started. Open the Help menu for setup guides for every supported device.")
                     .font(.caption)
@@ -1487,7 +1545,7 @@ struct ContentView: View {
             let fillColor: Color = {
                 if isHighlighted { return tint.opacity(0.18 + 0.18 * pulse) }
                 if hovering { return tint.opacity(0.16) }
-                return Color.secondary.opacity(0.06)
+                return Color.clear
             }()
             let strokeColor: Color = {
                 if isHighlighted { return tint.opacity(0.7 + 0.3 * pulse) }
@@ -1515,7 +1573,7 @@ struct ContentView: View {
             let iconColor: Color = active ? tint : Color.secondary.opacity(0.55)
             let chevronTint: Color = active ? tint : Color.secondary.opacity(0.45)
             return HStack(alignment: .top, spacing: 10) {
-                Image(systemName: icon)
+                IconView(name: icon, glyphHeight: 14)
                     .font(.system(size: 18))
                     .foregroundStyle(iconColor)
                     .frame(width: 24, height: 24)
@@ -1784,7 +1842,7 @@ struct ContentView: View {
             TutorialStep(
                 icon: "slider.horizontal.3",
                 tint: .indigo,
-                title: "Edit Bindings & Mappings",
+                title: "Edit the Preset",
                 body: "Watch the cursor click the Edit button. The editor opens. Each row is one binding: Scan an input, then pick what it outputs (key, mouse, MIDI, macro, speech, more).",
                 spotlight: SpotlightID.editButton,
                 tip: "The engine pauses while the editor is open so scanning a key never fires it.",
@@ -1854,7 +1912,7 @@ struct ContentView: View {
                 icon: "play.fill",
                 tint: .green,
                 title: "Activate the preset",
-                body: "Watch the cursor click the green Activate button. The engine starts. The light bar switches to this preset's color. Cursor utilities (confine, auto-recenter, hide) and the auto-launch app from Advanced Options all kick in. Click again to stop.",
+                body: "Watch the cursor click the green Activate button. The engine starts. The light bar switches to this preset's color. Cursor utilities (confine, auto-recenter, hide) and the auto-launch app from Automation & Gaming Utilities all kick in. Click again to stop.",
                 spotlight: SpotlightID.activateButton,
                 tip: "Click the green dot in the sidebar next to a preset to toggle activation without opening the detail page.",
                 action: {
@@ -1935,8 +1993,8 @@ struct ContentView: View {
             TutorialStep(
                 icon: "pencil.and.outline",
                 tint: .blue,
-                title: "Customize Layout",
-                body: "Watch the cursor click Customize Layout. The visualizer flips into 'blueprint mode' with a faint grid and a dashed yellow outline around every widget. Drag any widget to rearrange it.",
+                title: "Edit Layout",
+                body: "Watch the cursor click Edit Layout. The visualizer flips into 'blueprint mode' with a faint grid and a dashed yellow outline around every widget. Drag any widget to rearrange it.",
                 spotlight: SpotlightID.customizeButton,
                 tip: "Click Reset (in edit mode) to put every widget back where it started.",
                 action: {
@@ -2106,7 +2164,7 @@ struct ContentView: View {
                 icon: "slider.horizontal.3",
                 tint: .orange,
                 title: "Open the editor",
-                body: "Cursor clicks Edit Bindings & Mappings. The sheet slides up over the detail page. The engine outputs pause automatically, so scanning a key here records it as a binding instead of firing a real keystroke.",
+                body: "Cursor clicks Edit. The binding editor slides up over the detail page. The engine outputs pause automatically, so scanning a key here records it as a binding instead of firing a real keystroke.",
                 spotlight: SpotlightID.editButton,
                 action: {
                     if let mc = tutorialMinecraftPreset() {
@@ -2165,8 +2223,8 @@ struct ContentView: View {
             TutorialStep(
                 icon: "slider.horizontal.3",
                 tint: .gray,
-                title: "Advanced Options panel: per-preset side effects",
-                body: "Scrolling down to Advanced Options. Fill in a launch path to auto-open the app on activate. Confine, auto-recenter, and Hide cursor toggles apply only while this preset is active.",
+                title: "Automation & Gaming Utilities: per-preset side effects",
+                body: "Scrolling down to Automation & Gaming Utilities. Fill in a launch path to auto-open the app on activate. Confine, auto-recenter, and Hide cursor toggles apply only while this preset is active.",
                 action: {
                     NotificationCenter.default.post(
                         name: .inputConfigScrollToAutomation, object: nil)
@@ -2365,8 +2423,7 @@ struct ContentView: View {
                     Text("Turn On Accessibility")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.solid)
 
                 Button("Maybe Later") { showingAccessibilityIntro = false }
                     .buttonStyle(.plain)
@@ -2403,9 +2460,12 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 8)
                 Button("Open Settings") { accessibility.openSystemSettings() }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .tint(.white)
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(.white))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
@@ -2530,8 +2590,7 @@ struct ControllerChipView: View {
     var body: some View {
         HStack(spacing: 8) {
             // Controller icon
-            Image(systemName: "gamecontroller.fill")
-                .font(.caption)
+            ControllerGlyph(height: 11)
                 .foregroundStyle(color)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -2568,10 +2627,7 @@ struct ControllerChipView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isHovering ? color.opacity(0.08) : Color.clear)
-        )
+        .hoverFill(isHovering)
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
@@ -2643,8 +2699,7 @@ struct ControllerChipView: View {
         VStack(alignment: .leading, spacing: 10) {
             // Header
             HStack(spacing: 8) {
-                Image(systemName: "gamecontroller.fill")
-                    .font(.title3)
+                ControllerGlyph(height: 16)
                     .foregroundStyle(color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(controller.vendorName ?? "Controller \(index)")
@@ -2684,8 +2739,7 @@ struct ControllerChipView: View {
                         .font(.caption)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.solidSecondaryCompact)
                 .padding(.top, 2)
             }
 
@@ -2723,8 +2777,7 @@ struct ControllerChipView: View {
                 Label("Refresh Controllers", systemImage: "arrow.clockwise")
                     .font(.caption)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.solidSecondaryCompact)
         }
         .padding(16)
         .frame(width: 340)
@@ -2824,7 +2877,7 @@ struct ControllerChipView: View {
                     let b = Float(nsColor.blueComponent)
                     onSetLight(r, g, b)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.solidCompact)
                 .controlSize(.small)
             }
 
@@ -2872,7 +2925,7 @@ struct ControllerChipView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.solidSecondaryCompact)
             .controlSize(.small)
             .tint(isRGBActive ? .red : .accentColor)
 
@@ -2972,31 +3025,12 @@ struct PresetRowView: View {
         mainRow
     }
 
-    /// Top half of the row: activation circle, name, single-line
-    /// description with the trailing ellipsis-toggle, then the trailing
-    /// options Menu. Always the same height regardless of expansion.
+    /// Top half of the row: name, single-line description with the trailing
+    /// ellipsis-toggle, then the trailing options Menu. Always the same
+    /// height regardless of expansion.
     @ViewBuilder
     private var mainRow: some View {
         HStack(spacing: 6) {
-            ZStack {
-                if preset.isActive {
-                    Circle()
-                        .fill(Color.green.opacity(0.25))
-                        .frame(width: 20, height: 20)
-                        .blur(radius: 4)
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 12, height: 12)
-                        .shadow(color: Color.green.opacity(0.6), radius: 6, x: 0, y: 0)
-                } else {
-                    Circle()
-                        .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1.5)
-                        .frame(width: 12, height: 12)
-                }
-            }
-            .frame(width: 14, height: 18)
-            .accessibilityHidden(true)
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(preset.name)
                     .font(.body)
@@ -3227,6 +3261,13 @@ struct PresetDetailView: View {
                         .padding(.horizontal)
                         .spotlightAnchor(SpotlightID.visualizer)
 
+                    // 2b. Light Bar card: per-preset controller light color,
+                    //     promoted out of the visualizer so it's findable.
+                    if hasLightCapableController {
+                        sectionCard { presetLightBarSection }
+                            .padding(.horizontal)
+                    }
+
                     // 3. Joystick Slots card (mapping count + comment per
                     //    joystick group in the preset).
                     if !preset.joysticks.isEmpty {
@@ -3234,22 +3275,23 @@ struct PresetDetailView: View {
                             .padding(.horizontal)
                     } else {
                         ContentUnavailableView {
-                            Label("No Joystick Mappings", systemImage: "gamecontroller")
+                            Label { Text("No Joystick Mappings") } icon: { ControllerGlyph(height: 22) }
                         } description: {
                             Text("Edit this preset to add joystick mappings.")
                         }
                     }
 
-                    // 4. Details card (Usage, Inputs, Outputs, Controllers,
-                    //    Storage, version history).
-                    detailsCard
-                        .padding(.horizontal)
-
-                    // 5. Notes card. Last so the user can write context for
-                    //    a preset they've already taken in.
+                    // 4. Notes card. Personal context (which game, gotchas)
+                    //    belongs right after the mappings, before the
+                    //    technical file metadata below.
                     notesCard
                         .padding(.horizontal)
                         .spotlightAnchor(SpotlightID.notesSection)
+
+                    // 5. Details card (Usage, Inputs, Outputs, Controllers,
+                    //    Storage, version history).
+                    detailsCard
+                        .padding(.horizontal)
                 }
                 .padding(.vertical, 14)
             }
@@ -3270,29 +3312,32 @@ struct PresetDetailView: View {
 
         }
         .navigationTitle(preset.name)
+        .sheet(isPresented: $showingTouchpadCalFromDetail) {
+            TouchpadCalibrationView()
+                .environmentObject(presetStore)
+                .glassBackground()
+        }
+        .sheet(isPresented: $showingMotionCalFromDetail) {
+            MotionCalibrationView()
+                .environmentObject(controllerService)
+                .glassBackground()
+        }
     }
 
     // MARK: - Section card helpers
 
-    /// Wraps a section in a uniform card: subtle background, rounded
-    /// corners, soft border. Used by every major section of the detail
-    /// panel so they read as a related set rather than a scrap pile.
+    /// Wraps a section in a uniform Liquid Glass card. Used by every major
+    /// section of the detail panel so they read as one related set and carry
+    /// the same real glass as the rest of the app family (spec section 2).
     @ViewBuilder
     private func sectionCard<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.m) {
             content()
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
-        )
+        .padding(Metrics.cardPad)
+        .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.sectionRadius, style: .continuous))
     }
 
     /// Standard header row for a section card: tinted SF Symbol, title,
@@ -3305,8 +3350,8 @@ struct PresetDetailView: View {
         @ViewBuilder trailing: () -> Trailing = { EmptyView() }
     ) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(tint)
+            IconView(name: icon, glyphHeight: 12)
+                .iconTint(tint)
                 .font(.subheadline)
             Text(title)
                 .font(.subheadline.weight(.semibold))
@@ -3341,9 +3386,7 @@ struct PresetDetailView: View {
                         systemImage: preset.isActive ? "stop.fill" : "play.fill"
                     )
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(preset.isActive ? .red : .green)
-                .controlSize(.regular)
+                .buttonStyle(SolidButton(tint: preset.isActive ? .red : .green))
                 .spotlightAnchor(SpotlightID.activateButton)
                 .accessibilityLabel(preset.isActive
                                     ? "Deactivate \(preset.name)"
@@ -3352,12 +3395,13 @@ struct PresetDetailView: View {
                                    ? "Stops the mapping engine for this preset"
                                    : "Starts the mapping engine and applies this preset")
 
-                Button("Edit Bindings & Mappings", action: onEdit)
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .spotlightAnchor(SpotlightID.editButton)
-                    .accessibilityLabel("Edit bindings and mappings")
-                    .accessibilityHint("Opens the binding editor for this preset")
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(.solidSecondary)
+                .spotlightAnchor(SpotlightID.editButton)
+                .accessibilityLabel("Edit bindings and mappings")
+                .accessibilityHint("Opens the binding editor for this preset")
             }
         }
         .spotlightAnchor(SpotlightID.detailHeader)
@@ -3440,13 +3484,10 @@ struct PresetDetailView: View {
                             onJumpToBinding(target)
                         },
                         fixedSlot: slot,
-                        trailing: {
-                            if hasLightCapableController
-                                && slot == firstLightControllerIndex {
-                                presetLightBarSection
-                                    .frame(width: 280)
-                            }
-                        },
+                        // The light bar controls used to ride along here as a
+                        // trailing pane; they now live in their own Light Bar
+                        // card below the visualizer where they're findable.
+                        trailing: {},
                         lightBarTint: presetLightBarSwiftUIColor,
                         onChangeInputKind: { changedSlot, newKind in
                             updateSlotInputKind(
@@ -3472,6 +3513,26 @@ struct PresetDetailView: View {
             sectionHeader(icon: "rectangle.stack.fill",
                           title: "Joystick Slots",
                           tint: .indigo) {
+                // Calibration shortcuts, so hardware tuning is reachable
+                // right from the detail view instead of only inside the
+                // editor's toolbar.
+                if hasTouchpadCapableController || hasMotionCapableController {
+                    Menu {
+                        if hasTouchpadCapableController {
+                            Button("Calibrate Touchpad...") { showingTouchpadCalFromDetail = true }
+                        }
+                        if hasMotionCapableController {
+                            Button("Calibrate Motion...") { showingMotionCalFromDetail = true }
+                        }
+                    } label: {
+                        Label("Calibrate", systemImage: "scope")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("Calibrate")
+                    .accessibilityHint("Opens touchpad or motion calibration for the connected controller.")
+                }
                 Text("\(preset.joysticks.count) \(preset.joysticks.count == 1 ? "slot" : "slots")")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
@@ -3633,8 +3694,9 @@ struct PresetDetailView: View {
                         Label("Open in Finder", systemImage: "arrow.up.right.square")
                             .labelStyle(.titleAndIcon)
                             .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.plain)
                 }
                 HStack(spacing: 6) {
                     Text("•").foregroundStyle(.tertiary)
@@ -3650,6 +3712,21 @@ struct PresetDetailView: View {
 
     @State private var showVersions: Bool = false
     @State private var showVisualizer: Bool = true
+    /// Focus state for the notes editor, so the placeholder hides as soon as
+    /// the field is clicked rather than waiting for the first typed character.
+    @FocusState private var notesFocused: Bool
+    /// Calibration sheets launched from the Joystick Slots card header.
+    @State private var showingTouchpadCalFromDetail = false
+    @State private var showingMotionCalFromDetail = false
+
+    /// True when any connected controller has a touchpad / motion sensors.
+    /// Drives the Calibrate shortcut menu's visibility and contents.
+    private var hasTouchpadCapableController: Bool {
+        controllerService.controllerDetails.values.contains { $0.hasTouchpad }
+    }
+    private var hasMotionCapableController: Bool {
+        controllerService.controllerDetails.values.contains { $0.supportsMotion }
+    }
     /// Cached snapshot of the preset's version history. Loaded once per
     /// preset change instead of every render - the disk read + JSON decode
     /// inside `versions(for:)` is expensive enough that calling it on the
@@ -3682,8 +3759,9 @@ struct PresetDetailView: View {
                                 Button("Revert") {
                                     revertToVersion(version)
                                 }
-                                .buttonStyle(.link)
+                                .buttonStyle(.plain)
                                 .font(.caption)
+                                .foregroundStyle(Color.accentColor)
                             }
                         }
                     }
@@ -3718,7 +3796,7 @@ struct PresetDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "note.text")
-                    .foregroundStyle(.yellow)
+                    .iconTint(.yellow)
                 Text("Notes")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
@@ -3736,23 +3814,24 @@ struct PresetDetailView: View {
             TextEditor(text: $preset.notes)
                 .font(.callout)
                 .scrollContentBackground(.hidden)
+                .focused($notesFocused)
                 .frame(minHeight: 60, maxHeight: 120)
                 .padding(8)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.yellow.opacity(0.06))
+                        .fill(Color.secondary.opacity(0.06))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.yellow.opacity(0.25), lineWidth: 0.5)
+                        .stroke(Color.secondary.opacity(0.22), lineWidth: 0.5)
                 )
                 .overlay(alignment: .topLeading) {
-                    if preset.notes.isEmpty {
+                    if preset.notes.isEmpty && !notesFocused {
                         Text("Start typing...")
                             .font(.callout)
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 13)
-                            .padding(.vertical, 16)
+                            .padding(.vertical, 8)
                             .allowsHitTesting(false)
                     }
                 }
@@ -3823,7 +3902,7 @@ struct PresetDetailView: View {
                         Label("Clear override", systemImage: "arrow.uturn.backward")
                             .font(.caption)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.solidSecondaryCompact)
                     .controlSize(.small)
                     .help("Forget this preset's color and use the controller's general light instead")
                 }
@@ -3852,11 +3931,11 @@ struct PresetDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.yellow.opacity(0.08))
+                    .fill(Color.secondary.opacity(0.08))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.yellow.opacity(0.25), lineWidth: 0.5)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
             )
 
             // Swatches grid - wraps to a second row in the narrow popover.
@@ -3909,11 +3988,11 @@ struct PresetDetailView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.pink.opacity(0.05))
+                .fill(Color.secondary.opacity(0.05))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.pink.opacity(0.2), lineWidth: 0.5)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
         )
     }
 
@@ -3937,7 +4016,7 @@ struct PresetDetailView: View {
     @ViewBuilder
     private func detailsRow(title: String, icon: String, items: [String]) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
+            IconView(name: icon, glyphHeight: 11)
                 .frame(width: 16, alignment: .center)
                 .foregroundStyle(.secondary)
                 .padding(.top, 1)
@@ -4121,7 +4200,7 @@ struct PresetDetailView: View {
                     .labelsHidden()
                     .frame(width: 26, height: 26)
                 Button("Apply") { applyLightBar() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.solidCompact)
                     .controlSize(.small)
             }
 
@@ -4147,7 +4226,7 @@ struct PresetDetailView: View {
                     .font(.caption)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.solidSecondaryCompact)
             .controlSize(.small)
             .tint(isRGBCycleActive ? .red : .accentColor)
 
@@ -4156,11 +4235,11 @@ struct PresetDetailView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.pink.opacity(0.05))
+                .fill(Color.secondary.opacity(0.05))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.pink.opacity(0.2), lineWidth: 0.5)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
         )
     }
 
@@ -4213,7 +4292,7 @@ struct PresetDetailView: View {
                     .frame(width: 28, height: 28)
                     .padding(.horizontal, 4)
                 Button("Apply") { applyLightBar() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.solidCompact)
                     .controlSize(.small)
 
                 Divider()
@@ -4249,7 +4328,7 @@ struct PresetDetailView: View {
                         .labelStyle(.titleAndIcon)
                         .font(.caption)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.solidSecondaryCompact)
                 .controlSize(.small)
                 .tint(cycling ? .red : .accentColor)
 
@@ -4462,7 +4541,7 @@ struct SmartPresetMakerView: View {
         HStack(spacing: 10) {
             Image(systemName: "wand.and.stars")
                 .font(.title2)
-                .foregroundStyle(.purple)
+                .iconTint(.purple)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Smart Preset Maker").font(.headline)
                 Text(stepSubtitle).font(.caption).foregroundStyle(.secondary)
@@ -4491,14 +4570,14 @@ struct SmartPresetMakerView: View {
     private var footer: some View {
         HStack {
             if step != .category {
-                Button("Back") { back() }.buttonStyle(.bordered)
+                Button("Back") { back() }.buttonStyle(.solidSecondary)
             }
             Spacer()
             if step == .options {
-                Button("Next") { step = .finish }.buttonStyle(.borderedProminent).tint(.purple)
+                Button("Next") { step = .finish }.buttonStyle(.solid)
             } else if step == .finish {
                 Button("Create Preset") { create() }
-                    .buttonStyle(.borderedProminent).tint(.purple)
+                    .buttonStyle(.solid)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -4516,7 +4595,7 @@ struct SmartPresetMakerView: View {
                     category = cat; search = ""; step = .item
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: cat.systemImage).font(.title2).frame(width: 34)
+                        IconView(name: cat.systemImage, glyphHeight: 17).font(.title2).frame(width: 34)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(catTitle(cat)).font(.headline)
                             Text(catDesc(cat)).font(.caption).foregroundStyle(.secondary)
@@ -4576,7 +4655,7 @@ struct SmartPresetMakerView: View {
                     step = .options
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "gamecontroller.fill").frame(width: 26)
+                        ControllerGlyph(height: 15).frame(width: 26)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(b.displayName)
@@ -4612,7 +4691,7 @@ struct SmartPresetMakerView: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    Button("Choose App…") { chooseApp() }.controlSize(.small)
+                    Button("Choose App…") { chooseApp() }.buttonStyle(.solidSecondaryCompact)
                 }
             }
             Divider()
@@ -4629,7 +4708,7 @@ struct SmartPresetMakerView: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: 4) {
-                Label("\(brand.displayName) supports: \(brand.capabilitySummary)", systemImage: "gamecontroller")
+                Label { Text("\(brand.displayName) supports: \(brand.capabilitySummary)") } icon: { ControllerGlyph(height: 10) }
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if brand.hasMotion {
@@ -4790,5 +4869,56 @@ struct SmartPresetMakerView: View {
             Text(value)
         }
         .font(.caption)
+    }
+}
+
+
+/// A quiet rotating pill of one-line feature tips, ported from YapToText's
+/// QuickTipsPill. The text swaps on a slow clock with NO animated transaction
+/// and the pill keeps a stable single-Text structure.
+private struct QuickTipsPill: View {
+    private static let tips: [String] = [
+        "Press \u{2303}\u{2325}\u{2318}P anywhere to toggle your most recent preset, even while a game is in front (enable it in Settings).",
+        "The Smart Preset Maker builds a tailored preset from a few questions: pick a game, answer, done.",
+        "Gyro aim: bind gyro yaw to mouse X and pitch to mouse Y for motion aiming in any app.",
+        "The DualSense touchpad can drive your Mac's cursor while a second finger scrolls.",
+        "Turbo any button to rapid-fire it, or flip a binding to Toggle to latch it on and off.",
+        "Macros chain keystrokes with per-step timing, and can mix keys, clicks, and MIDI in one sequence.",
+        "Sticks and triggers can send MIDI notes and CC dials straight into GarageBand, Logic, or Ableton.",
+        "A preset can auto-activate when its app comes to the front, then step aside when you leave.",
+        "Set the DualSense light bar per preset so you can see which mapping is live from across the room.",
+        "Everything runs and stays on your Mac. No telemetry, no account, nothing uploaded.",
+        "Import presets with the tray icon in the bottom bar; export any preset from its right-click menu.",
+        "Hide the Dock icon in Settings to run InputConfig as a quiet menu bar app.",
+        "The editor has unlimited undo: \u{2318}Z and \u{2318}\u{21E7}Z work through every change.",
+        "Click any control on the Live Visualizer to jump straight to its binding in the editor.",
+    ]
+
+    @State private var index = Int.random(in: 0..<QuickTipsPill.tips.count)
+    @State private var rotator: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "lightbulb.max").iconTint(.accentColor).font(.caption)
+            Text(Self.tips[index])
+                .font(.caption).foregroundStyle(.secondary)
+                .lineLimit(2).multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .background(Color.secondary.opacity(0.06), in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.12), lineWidth: 0.5))
+        .onAppear {
+            rotator?.cancel()
+            rotator = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 9_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    index = (index + 1) % Self.tips.count
+                }
+            }
+        }
+        .onDisappear { rotator?.cancel(); rotator = nil }
+        .accessibilityLabel("Tip: \(Self.tips[index])")
     }
 }

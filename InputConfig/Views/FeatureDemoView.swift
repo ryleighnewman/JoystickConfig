@@ -119,7 +119,7 @@ enum FeatureDemoKind: String, CaseIterable, Identifiable {
         case .stackedOutputs:
             return "Wire one input to multiple outputs in parallel - a key AND a mouse click AND a MIDI note AND a spoken phrase, all firing simultaneously. Different from a macro (which is a sequence with delays); stacked outputs are simpler to debug and faster to author."
         case .autoLaunch:
-            return "Each preset has its own Advanced Options panel. Activating the preset can auto-launch an app (e.g. Steam, your DAW, a specific game), confine the cursor away from screen edges, auto-recenter it, and hide the system pointer - all turned off when you deactivate. Per-game settings, never global."
+            return "Each preset has its own Automation & Gaming Utilities panel. Activating the preset can auto-launch an app (e.g. Steam, your DAW, a specific game), confine the cursor away from screen edges, auto-recenter it, and hide the system pointer - all turned off when you deactivate. Per-game settings, never global."
         case .midiCC:
             return "Bind axes (sticks, triggers) to continuous MIDI Control Change values. Sticks become soft modulation knobs for filter cutoff, expression, channel volume, pan, anything CC-mappable in your DAW. Different from MIDI Notes - CC sends a 0-127 value every poll, perfect for sweeps and automation."
         }
@@ -139,9 +139,9 @@ struct FeatureDemoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                Image(systemName: iconName)
+                IconView(name: iconName, glyphHeight: 25)
                     .font(.system(size: 32))
-                    .foregroundStyle(tint)
+                    .iconTint(tint)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind.title)
@@ -156,15 +156,23 @@ struct FeatureDemoView: View {
 
             Divider()
 
+            // Fill the space between the header and the action row so the demo
+            // sits centered in the body instead of everything bunching up in
+            // the middle, and the buttons stay pinned to the bottom.
             demoSurface
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
+            // Close on the left, primary "Take me..." on the right. The CTA has
+            // its focus ring suppressed so it doesn't open pre-selected.
             HStack {
-                ctaButton
-                Spacer()
                 Button("Close") { dismiss() }
+                    .buttonStyle(.solidSecondary)
                     .keyboardShortcut(.cancelAction)
+                Spacer()
+                ctaButton
+                    .focusEffectDisabled()
             }
         }
         .padding(22)
@@ -181,17 +189,17 @@ struct FeatureDemoView: View {
             Button { onJumpToPreset(name) } label: {
                 Label("Take me to an example preset", systemImage: "arrowshape.right.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(GlassCTAButton(tint: tint))
         case .statistics:
             Button { onOpenStatistics() } label: {
                 Label("Open Statistics", systemImage: "chart.bar.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.solid)
         case .settings:
             Button { onOpenSettings() } label: {
                 Label("Open Settings", systemImage: "gearshape.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.solid)
         }
     }
 
@@ -368,7 +376,7 @@ private struct KeyboardMouseDemo: View {
                         .frame(width: 220, height: 140)
                     Image(systemName: "cursorarrow.rays")
                         .font(.title2)
-                        .foregroundStyle(.orange)
+                        .iconTint(.orange)
                         .offset(x: cursorX, y: cursorY)
                 }
             }
@@ -679,8 +687,7 @@ private struct HapticDemo: View {
                 // Output: vibrating controller with intensity bars.
                 VStack(spacing: 8) {
                     ZStack {
-                        Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 50))
+                        ControllerGlyph(height: 38)
                             .foregroundStyle(.purple.opacity(0.85))
                             .offset(x: CGFloat(sin(t * 40)) * burst * 2,
                                     y: CGFloat(cos(t * 40)) * burst * 2)
@@ -739,7 +746,7 @@ private struct SpeechDemo: View {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "speaker.wave.3.fill")
                             .font(.title2)
-                            .foregroundStyle(.indigo)
+                            .iconTint(.indigo)
                         Text("“\(phrase)”")
                             .font(.callout.weight(.medium))
                             .padding(.horizontal, 10)
@@ -798,8 +805,7 @@ private struct LightBarDemo: View {
                             .fill(color)
                             .frame(width: 60, height: 6)
                     }
-                    Image(systemName: "gamecontroller.fill")
-                        .font(.system(size: 96))
+                    ControllerGlyph(height: 70)
                         .foregroundStyle(.secondary.opacity(0.5))
                 }
                 // Hue ring
@@ -843,7 +849,7 @@ private struct ControllersDemo: View {
                     ForEach(0..<entries.count, id: \.self) { i in
                         let isActive = i == active
                         VStack(spacing: 6) {
-                            Image(systemName: entries[i].symbol)
+                            IconView(name: entries[i].symbol, glyphHeight: isActive ? 24 : 17)
                                 .font(.system(size: isActive ? 30 : 22))
                                 .foregroundStyle(isActive ? Color.cyan : Color.secondary.opacity(0.6))
                             Text(entries[i].name)
@@ -913,7 +919,7 @@ private struct GyroDemo: View {
 
                     Image(systemName: "cursorarrow.rays")
                         .font(.title2)
-                        .foregroundStyle(.teal)
+                        .iconTint(.teal)
                         .offset(x: cursorX, y: cursorY)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -972,7 +978,7 @@ private struct TouchpadDemo: View {
                         .frame(width: 200, height: 120)
                     Image(systemName: "cursorarrow.rays")
                         .font(.title2)
-                        .foregroundStyle(.mint)
+                        .iconTint(.mint)
                         .offset(x: cursorX, y: cursorY)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1292,7 +1298,7 @@ private struct AutoLaunchDemo: View {
                 VStack(spacing: 4) {
                     Image(systemName: "power")
                         .font(.title2)
-                        .foregroundStyle(.green)
+                        .iconTint(.green)
                     Text("Activate")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.green)
@@ -1342,7 +1348,7 @@ private struct AutoLaunchDemo: View {
                 .frame(width: 170, height: 100)
             Image(systemName: "cursorarrow")
                 .font(.title3)
-                .foregroundStyle(.green)
+                .iconTint(.green)
                 .offset(x: cursorX, y: cursorY)
             Text("Confine")
                 .font(.caption2)

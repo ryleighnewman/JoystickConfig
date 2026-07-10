@@ -11,7 +11,7 @@ struct GamingUtilitiesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("These are global defaults used when a preset doesn't set its own. Per-preset overrides live in the preset editor's Advanced Options panel - that's the right place for game-specific choices. Nothing here changes macOS-wide settings.")
+            Text("These are global defaults used when a preset doesn't set its own. Per-preset overrides live in the preset editor's Automation & Gaming Utilities panel - that's the right place for game-specific choices. Nothing here changes macOS-wide settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -70,7 +70,7 @@ struct GamingUtilitiesPanel: View {
                         } label: {
                             Label("Recenter now", systemImage: "scope")
                         }
-                        .controlSize(.small)
+                        .buttonStyle(.solidSecondaryCompact)
                         .help("Teleport the cursor to the centre of the current screen.")
                     }
                     Text("Periodically teleports the cursor to the centre of whichever screen it's on. Pair with edge-confine for games whose camera stops moving when the cursor hits an edge.")

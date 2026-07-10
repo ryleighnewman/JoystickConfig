@@ -98,8 +98,10 @@ struct DeadzoneCalibrationView: View {
                     }
                     onClose()
                 }
+                .buttonStyle(.solidSecondaryCompact)
                 .keyboardShortcut(.cancelAction)
                 Button("Save") { onClose() }
+                .buttonStyle(.solidCompact)
                     .keyboardShortcut(.defaultAction)
             }
 
@@ -162,7 +164,7 @@ struct DeadzoneCalibrationView: View {
                     Label("Reset Trail", systemImage: "arrow.counterclockwise")
                         .font(.caption)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.solidSecondaryCompact)
                 .controlSize(.small)
             }
             .padding(.top, 4)

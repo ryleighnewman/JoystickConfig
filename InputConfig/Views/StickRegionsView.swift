@@ -87,6 +87,7 @@ struct StickRegionsView: View {
                     } label: {
                         Label("Add Region", systemImage: "plus.rectangle")
                     }
+                    .buttonStyle(.solidSecondaryCompact)
                     .disabled(drawingNewRegion
                               || (svc.regions(forStick: selectedStick).count >= Self.maxRegions))
 
@@ -96,6 +97,7 @@ struct StickRegionsView: View {
                             dragStart = nil
                             dragCurrent = nil
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                     }
 
                     Spacer()
@@ -127,6 +129,7 @@ struct StickRegionsView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Done") { dismiss() }
+                .buttonStyle(.solid)
                 .keyboardShortcut(.cancelAction)
         }
     }

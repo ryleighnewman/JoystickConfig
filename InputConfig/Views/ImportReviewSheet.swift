@@ -174,6 +174,7 @@ struct ImportReviewSheet: View {
                 presetStore.cancelImportReview()
                 dismiss()
             }
+            .buttonStyle(.solidSecondary)
             .keyboardShortcut(.cancelAction)
             Spacer()
             Text(footerStatusText)
@@ -182,7 +183,7 @@ struct ImportReviewSheet: View {
             Button(action: confirm) {
                 Text("Import")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.solid)
             .keyboardShortcut(.defaultAction)
             .disabled(willImportCount == 0)
         }

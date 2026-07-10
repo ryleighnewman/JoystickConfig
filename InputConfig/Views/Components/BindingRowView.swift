@@ -31,6 +31,10 @@ struct BindingRowView: View {
     @State private var showAdvanced = false
     @State private var showMacroEditor = false
     @State private var showDeadzoneCalibration = false
+    /// Region editors opened straight from the input pickers, so defining a
+    /// missing cursor/stick region doesn't require a detour through Settings.
+    @State private var showCursorRegionsEditor = false
+    @State private var showStickRegionsEditor = false
     /// Drives the firing arrow's left-to-right sweep while highlighted.
     @State private var arrowShoot = false
 
@@ -98,7 +102,6 @@ struct BindingRowView: View {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(Color.secondary.opacity(0.12))
                         )
-                        .fixedSize()
                         .frame(width: 32, alignment: .leading)
                 }
 
@@ -115,9 +118,7 @@ struct BindingRowView: View {
                 HStack(spacing: 6) {
                 // COL 1: Scan
                 Button("Scan", action: onScan)
-                    .font(.caption2)
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .buttonStyle(.solidSecondaryMini)
                     .frame(width: scanColWidth, alignment: .center)
                     .accessibilityLabel("Scan binding \(displayNumber)")
                     .accessibilityHint("Press a button, key, or axis on your controller to record this binding")
@@ -171,12 +172,14 @@ struct BindingRowView: View {
                     .accessibilityLabel(directionPickerAccessibilityLabel)
                     .accessibilityValue(directionPickerAccessibilityValue)
 
-                Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity)
 
-                // Centered arrow between the two columns. While the row is
-                // firing it tints green and shoots left to right.
+                // Fixed-position arrow right after the input columns. The two
+                // flexible `maxWidth: .infinity` halves that used to center it
+                // forced SwiftUI to renegotiate each row's width with repeated
+                // sizeThatFits probes; on a large preset that pegged the main
+                // thread solid. Only the output side stays flexible now, so the
+                // row lays out in a single pass.
                 firingArrow
 
                 // OUTPUT column: icon + type + value, with the row actions
@@ -303,6 +306,7 @@ struct BindingRowView: View {
                 isInverted: binding.invertAxis ?? false,
                 onClose: { showDeadzoneCalibration = false }
             )
+            .glassBackground()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: Notification.Name("InputConfig.ExpandBindingOptions"))) { note in
@@ -517,7 +521,6 @@ struct BindingRowView: View {
                 let regions = CursorRegionService.shared.allRegions()
                 if regions.isEmpty {
                     Text("No cursor regions defined")
-                    Text("Open Settings → Devices → Cursor Regions to add some")
                 } else {
                     ForEach(regions) { region in
                         Button(region.name) {
@@ -525,12 +528,20 @@ struct BindingRowView: View {
                         }
                     }
                 }
+                Divider()
+                Button("Edit Cursor Regions...") {
+                    showCursorRegionsEditor = true
+                }
             } label: {
                 menuLabel(cursorRegionDisplayName)
             }
             .menuStyle(.borderlessButton)
             .controlSize(.small)
             .fixedSize()
+            .sheet(isPresented: $showCursorRegionsEditor) {
+                CursorRegionsView()
+                    .glassBackground()
+            }
 
         case .stickRegion:
             // Parallel to `.cursorRegion` but the regions are zones in
@@ -543,7 +554,6 @@ struct BindingRowView: View {
                 let rightRegions = StickRegionService.shared.regions(forStick: 1)
                 if leftRegions.isEmpty && rightRegions.isEmpty {
                     Text("No stick regions defined")
-                    Text("Open Settings → Devices → Stick Regions to add some")
                 } else {
                     if !leftRegions.isEmpty {
                         Section("Left Stick") {
@@ -566,12 +576,20 @@ struct BindingRowView: View {
                         }
                     }
                 }
+                Divider()
+                Button("Edit Stick Regions...") {
+                    showStickRegionsEditor = true
+                }
             } label: {
                 menuLabel(stickRegionDisplayName)
             }
             .menuStyle(.borderlessButton)
             .controlSize(.small)
             .fixedSize()
+            .sheet(isPresented: $showStickRegionsEditor) {
+                StickRegionsView()
+                    .glassBackground()
+            }
 
         case .extKey:
             // HID usage code. Most users won't remember a code by number, so
@@ -1780,10 +1798,19 @@ struct BindingRowView: View {
     }
 
     private func optionsGroupHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 8, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .padding(.top, 2)
+        // A hairline + breathing room above each group so the expanded
+        // Options list reads as labelled clusters instead of one wall.
+        VStack(alignment: .leading, spacing: 3) {
+            Divider()
+                .opacity(0.5)
+            Text(title.uppercased())
+                .font(.system(size: 8, weight: .semibold))
+                .kerning(0.5)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 1)
+        .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
@@ -1822,8 +1849,7 @@ struct BindingRowView: View {
                     }
                     .foregroundStyle(.tint)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
+                .buttonStyle(.solidSecondaryMini)
                 .help(isTriggerAxis
                       ? "Open the trigger pressure calibration view."
                       : "Calibrate the joystick by moving it around in a circle.")
@@ -2124,8 +2150,7 @@ struct BindingRowView: View {
                     Label("Add Step", systemImage: "plus.circle")
                         .font(.system(size: 9))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
+                .buttonStyle(.solidSecondaryMini)
             }
 
             if let steps = binding.macroSteps, !steps.isEmpty {

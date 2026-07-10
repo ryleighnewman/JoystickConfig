@@ -418,6 +418,14 @@ final class RawHIDGamepadService: ObservableObject {
         // Ventura+.
         if vid == 0x057E { return true }
 
+        // Google Stadia and Amazon Luna are GameController-supported on
+        // modern macOS. Without suppressing them here the same pad was
+        // enumerated by BOTH drivers (an MFi slot and a raw-HID slot with
+        // different index schemes), so scans could record indices the
+        // user's preset slot never matched.
+        if vid == 0x18D1 { return true }   // Google (Stadia)
+        if vid == 0x1949 { return true }   // Amazon (Luna)
+
         return false
     }
 }

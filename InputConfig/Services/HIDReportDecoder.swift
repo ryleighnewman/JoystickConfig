@@ -77,7 +77,9 @@ enum HIDReportDecoder {
         let dpadLeft = bit(buttons, 2)
         let dpadRight = bit(buttons, 3)
         let hatX: Float = (dpadLeft > 0.5 && dpadRight > 0.5) ? 0 : (dpadRight - dpadLeft)
-        let hatY: Float = (dpadUp > 0.5 && dpadDown > 0.5) ? 0 : (dpadDown - dpadUp)
+        // Up-positive, matching the GC-framework / Steam / engine convention
+        // (this was inverted, so d-pad Up on XInput pads read as Down).
+        let hatY: Float = (dpadUp > 0.5 && dpadDown > 0.5) ? 0 : (dpadUp - dpadDown)
         state.hats[0] = (x: hatX, y: hatY)
 
         // XInput button bit positions (canonical Xbox 360 mapping)
@@ -145,7 +147,8 @@ enum HIDReportDecoder {
         let ds3Left = bit(UInt16(b2), 7)
         state.hats[0] = (
             x: ds3Right - ds3Left,
-            y: ds3Down - ds3Up
+            // Up-positive (was inverted; see XInput note above).
+            y: ds3Up - ds3Down
         )
 
         // Byte 3 bits: L2(0), R2(1), L1(2), R1(3), Triangle(4), Circle(5), Cross(6), Square(7)
@@ -261,15 +264,17 @@ enum HIDReportDecoder {
                 let direction = raw - layout.hatLogicalMin
                 // Standard 8-direction encoding after normalization
                 // (0=N, 1=NE, ..., 7=NW; anything else = center).
+                // Up-positive convention (N = +1), matching GC framework,
+                // Steam, and the engine's hat matching. Was inverted.
                 switch direction {
-                case 0: setHat(&state, x: 0, y: -1)              // N
-                case 1: setHat(&state, x: 0.707, y: -0.707)      // NE
+                case 0: setHat(&state, x: 0, y: 1)               // N
+                case 1: setHat(&state, x: 0.707, y: 0.707)       // NE
                 case 2: setHat(&state, x: 1, y: 0)               // E
-                case 3: setHat(&state, x: 0.707, y: 0.707)       // SE
-                case 4: setHat(&state, x: 0, y: 1)               // S
-                case 5: setHat(&state, x: -0.707, y: 0.707)      // SW
+                case 3: setHat(&state, x: 0.707, y: -0.707)      // SE
+                case 4: setHat(&state, x: 0, y: -1)              // S
+                case 5: setHat(&state, x: -0.707, y: -0.707)     // SW
                 case 6: setHat(&state, x: -1, y: 0)              // W
-                case 7: setHat(&state, x: -0.707, y: -0.707)     // NW
+                case 7: setHat(&state, x: -0.707, y: 0.707)      // NW
                 default: setHat(&state, x: 0, y: 0)
                 }
             }

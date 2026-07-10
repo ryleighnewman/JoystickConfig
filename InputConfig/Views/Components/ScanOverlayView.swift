@@ -75,11 +75,10 @@ struct ScanOverlayView: View {
                 .foregroundStyle(.white.opacity(0.85))
             }
             .padding(40)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                    .shadow(radius: 20)
-            )
+            // Floating scan panel: real Liquid Glass at the card radius, with a
+            // drop shadow (shadows are allowed on floating HUDs).
+            .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+            .shadow(radius: 20)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Scan for input. Press a control on your controller, or a key, click, or scroll on your Mac, to map it.")
             .accessibilityHint("Press Escape to cancel.")

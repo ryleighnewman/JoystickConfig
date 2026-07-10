@@ -51,6 +51,11 @@ struct TipJarView: View {
         }
         .frame(width: 480)
         .padding(20)
+        // macOS hands keyboard focus to the first focusable control when the
+        // window opens, drawing a blue focus ring around the top tip row as if
+        // it were pre-selected. Suppress the ring window-wide; clicks and
+        // keyboard shortcuts are unaffected.
+        .focusEffectDisabled()
         .task { await service.loadProducts() }
         .alert("Thank you!", isPresented: $showingThanks) {
             Button("You're welcome", role: .cancel) {}
@@ -65,10 +70,10 @@ struct TipJarView: View {
         VStack(spacing: 6) {
             Image(systemName: "heart.fill")
                 .font(.system(size: 36))
-                .foregroundStyle(.pink)
+                .iconTint(.pink)
             Text("Support InputConfig")
                 .font(.title2.weight(.semibold))
-            Text("InputConfig is free forever. If it makes your setup better, a tip helps fund continued development.")
+            Text("InputConfig is free forever and proudly open source. If it makes your setup better, a tip helps fund continued development.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -98,20 +103,28 @@ struct TipJarView: View {
     // MARK: - Recurring Toggle
 
     private var recurringToggle: some View {
-        HStack {
-            Toggle(isOn: $recurring) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Make this recurring monthly")
-                        .font(.body)
-                    Text(recurring
-                         ? "Tips charge automatically each month until cancelled."
-                         : "Switch on to support monthly instead of one time.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        HStack(alignment: .center, spacing: 12) {
+            // Descriptive text lives in its own leading column...
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Make this recurring monthly")
+                    .font(.body)
+                Text(recurring
+                     ? "Tips charge automatically each month until cancelled."
+                     : "Switch on to support monthly instead of one time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .toggleStyle(.switch)
             Spacer(minLength: 0)
+            // ...and the switch is pinned to the trailing edge, so the changing
+            // subtitle length no longer shifts it (it used to jump because the
+            // Toggle sized to its label). labelsHidden keeps the a11y label;
+            // focusEffectDisabled stops it grabbing the focus ring on open so it
+            // doesn't look pre-selected.
+            Toggle("Make this recurring monthly", isOn: $recurring)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .focusEffectDisabled()
         }
     }
 
@@ -161,10 +174,11 @@ struct TipJarView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.secondary.opacity(0.08))
-            )
+            // Token surface (spec section 4) instead of the bespoke radius-8
+            // 0.08 fill. Kept a .plain button so the row's own title / subtitle
+            // / price typography survives (SolidButton would flatten it to one
+            // body weight and color).
+            .innerWell()
         }
         .buttonStyle(.plain)
         .disabled(service.purchaseInProgress != nil)
@@ -183,31 +197,34 @@ struct TipJarView: View {
         // for both consumable and subscription variants.
         if productID.contains(".small") {
             Image(systemName: "cup.and.saucer.fill")
-                .foregroundStyle(.brown)
-        } else if productID.contains(".medium") {
+                .iconTint(.brown)
+        } else if productID.contains(".med") {
+            // The consumable medium tier's ID is ".med" (not ".medium"), so the
+            // match must be ".med" or the medium tip fell through to the gift
+            // icon and looked identical to the generous tip.
             Image(systemName: "takeoutbag.and.cup.and.straw.fill")
-                .foregroundStyle(.orange)
+                .iconTint(.orange)
         } else if productID.contains(".large") {
             Image(systemName: "fork.knife")
-                .foregroundStyle(.purple)
+                .iconTint(.purple)
         } else {
             Image(systemName: "gift.fill")
-                .foregroundStyle(.pink)
+                .iconTint(.pink)
         }
     }
 
     // MARK: - Subscription Disclosure
 
     private var subscriptionDisclosure: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Subscription auto-renews monthly at the listed price. Cancel anytime in your App Store account. Payment is charged to your Apple ID at confirmation of purchase.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-            legalLinks
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Auto-renew wording only. The Terms of Use (EULA) / Privacy links
+        // required by Guideline 3.1.2 live in the always-visible footer below,
+        // so repeating them here was pure clutter (YapToText does the same).
+        Text("Subscription auto-renews monthly at the listed price. Cancel anytime in your App Store account. Payment is charged to your Apple ID at confirmation of purchase.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Functional Terms of Use (EULA) and Privacy Policy links. Required in the
@@ -228,7 +245,7 @@ struct TipJarView: View {
             if service.totalTipsCount > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "hands.sparkles.fill")
-                        .foregroundStyle(.yellow)
+                        .iconTint(.yellow)
                     Text("You've tipped \(service.totalTipsCount) time\(service.totalTipsCount == 1 ? "" : "s"). Thank you.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -258,12 +275,14 @@ struct TipJarView: View {
                         Text("Restore Purchases")
                     }
                 }
+                .buttonStyle(.solidSecondary)
                 .disabled(isRestoring)
 
                 if service.activeSubscription != nil {
                     Button("Manage Subscription") {
                         NSWorkspace.shared.open(Self.manageSubscriptionsURL)
                     }
+                    .buttonStyle(.solidSecondary)
                 }
 
                 Spacer()
@@ -271,6 +290,7 @@ struct TipJarView: View {
                 Button("Close") {
                     dismiss()
                 }
+                .buttonStyle(.solidSecondary)
                 .keyboardShortcut(.cancelAction)
             }
         }
@@ -291,7 +311,7 @@ struct TipJarView: View {
             Button("Retry") {
                 Task { await service.loadProducts() }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.solidSecondaryCompact)
             .controlSize(.small)
             .padding(.top, 4)
         }
@@ -331,11 +351,15 @@ final class TipJarWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: TipJarView())
+        let hosting = NSHostingController(rootView: TipJarView()
+            .background(VisualEffectBackground().ignoresSafeArea()))
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Support InputConfig"
         newWindow.setContentSize(NSSize(width: 520, height: 640))
-        newWindow.styleMask = [.titled, .closable, .miniaturizable]
+        // .fullSizeContentView lets the blur reach under the transparent
+        // titlebar so the top bar isn't see-through to the desktop.
+        newWindow.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        newWindow.titlebarAppearsTransparent = true
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
         window = newWindow

@@ -59,7 +59,7 @@ enum HelpGuideLibrary {
             HelpSection(heading: "What it does",
                         body: "One-stick driving turns a single analog stick into a whole vehicle control scheme, the way a power wheelchair drives. Left and right steers; pushing forward accelerates and pulling back brakes. Because the app sends keyboard and mouse, variable throttle works by pulsing the accelerate key quickly, so pushing the stick further holds the key a larger share of each cycle, which most games read as proportional speed. Steering is smooth mouse movement by default."),
             HelpSection(heading: "Turning it on",
-                        body: "Open a preset, scroll to the One-Stick Driving panel below Advanced Options, and switch it on. The fastest start is the built-in One-Stick Racing preset in the Smart Preset Maker.",
+                        body: "Open a preset and scroll to the One-Stick Driving panel just below the joystick groups, then switch it on. The fastest start is the built-in One-Stick Racing preset in the Smart Preset Maker.",
                         steps: [
                             "Pick which stick drives: Left, Right, or Custom axes.",
                             "Move the stick and watch the live readout to confirm the right axes respond.",

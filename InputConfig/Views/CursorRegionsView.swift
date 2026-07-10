@@ -102,6 +102,7 @@ struct CursorRegionsView: View {
                     } label: {
                         Label("Add Region", systemImage: "plus.rectangle")
                     }
+                    .buttonStyle(.solidSecondaryCompact)
                     .disabled(drawingNewRegion || regions.count >= Self.maxRegions)
 
                     if drawingNewRegion {
@@ -110,6 +111,7 @@ struct CursorRegionsView: View {
                             dragStart = nil
                             dragCurrent = nil
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                     }
 
                     Spacer()
@@ -137,6 +139,7 @@ struct CursorRegionsView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Done") { dismiss() }
+                .buttonStyle(.solid)
                 .keyboardShortcut(.cancelAction)
         }
     }

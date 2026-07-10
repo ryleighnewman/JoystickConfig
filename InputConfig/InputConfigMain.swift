@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @MainActor
 final class AppState: ObservableObject {
@@ -12,6 +13,24 @@ final class AppState: ObservableObject {
     let accessibility = AccessibilityPermissionService.shared
 
     init() {
+        // Registered (volatile) defaults, applied whenever a key is unset.
+        // Polling defaults to the power-source auto-switch mode so a fresh
+        // install already adapts its rate to AC vs battery; the engine reads
+        // these keys directly, so registering here (not just in @AppStorage)
+        // is what makes "auto" the real default before Settings is ever opened.
+        // NOTE: deliberately NOT registering pollHzOnAC/pollHzOnBattery/pollHz.
+        // MappingEngine falls back to the user's chosen pollHz when the
+        // per-source keys are unset; registering 120 here made that fallback
+        // dead and silently downgraded existing users who had picked a
+        // higher rate before this update.
+        UserDefaults.standard.register(defaults: [
+            "InputConfig.autoPollHzByPower": true,
+            "InputConfig.showDockIcon": true,
+        ])
+        // The app is designed dark-first; in light mode the frosted-glass
+        // surfaces wash out to near-white. Force the dark appearance app-wide
+        // (windows, sheets, menus, popovers) regardless of the system setting.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         // Boot the freeze watchdog before any heavy work runs - this is the
         // earliest place the main actor is alive, so we get the most
         // accurate "main thread responsiveness" baseline.
@@ -60,6 +79,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Show or hide the app's Dock icon (and, with it, the top menu bar and
+    /// Cmd-Tab entry). Hiding it makes InputConfig a menu bar-only agent app.
+    /// The caller guarantees at least one of {Dock icon, menu bar icon} stays
+    /// visible so the app is always reachable.
+    static func applyDockIconVisible(_ visible: Bool) {
+        NSApp.setActivationPolicy(visible ? .regular : .accessory)
+        // Re-activate on BOTH paths: switching to .accessory otherwise drops
+        // the app behind whatever is next, which reads as the window
+        // vanishing the moment the toggle is flipped. One runloop turn lets
+        // the policy change land first.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// Tear down outputs in priority order. Called on willTerminate.
     /// Each step is best-effort - a failure in one shouldn't block
     /// the others. Wraps in a fileprivate method so it's available
@@ -93,6 +127,375 @@ final class AppState: ObservableObject {
     }
 }
 
+/// The app's own controller artwork (the same glyph as the menu bar icon)
+/// as a tintable inline icon. Drop-in replacement for the "gamecontroller"
+/// SF Symbol so the custom artwork shows everywhere the app pictures a
+/// controller. `height` approximates the point size of the symbol replaced.
+struct ControllerGlyph: View {
+    var height: CGFloat = 13
+
+    var body: some View {
+        Image("ControllerGlyph")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(height: height)
+    }
+}
+
+/// Icon-by-name renderer: game-controller SF Symbol names render the
+/// custom ControllerGlyph artwork; every other name falls through to
+/// Image(systemName:). `glyphHeight` sizes only the custom glyph - SF
+/// Symbols keep sizing through .font at the call site as usual.
+struct IconView: View {
+    let name: String
+    var glyphHeight: CGFloat = 13
+
+    var body: some View {
+        if name.hasPrefix("gamecontroller") {
+            ControllerGlyph(height: glyphHeight)
+        } else {
+            Image(systemName: name)
+        }
+    }
+}
+
+/// Menu-safe controller icon. macOS menus (Menu / Picker `.menu`) ignore the
+/// resize hint on a custom image and fall back to the asset's intrinsic size,
+/// so a menu item must use a dedicated small-intrinsic asset rather than the
+/// resizable `ControllerGlyph` (which would render at the full viewBox size).
+/// The menu bar and every inline use keep the plain `ControllerGlyph` asset,
+/// so the two never fight over one intrinsic size. Non-controller names fall
+/// through to the SF Symbol.
+struct MenuIcon: View {
+    let name: String
+    var body: some View {
+        if name.hasPrefix("gamecontroller") {
+            Image("ControllerGlyphMenu").renderingMode(.template)
+        } else {
+            Image(systemName: name)
+        }
+    }
+}
+
+/// Behind-window vibrancy that gives the app's windows the classic frosted,
+/// translucent macOS look, and makes the host window non-opaque so the blur
+/// reaches the desktop behind it. Reused by every window in the app so they
+/// all share the same treatment.
+struct VisualEffectBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .followsWindowActiveState
+        // Once the view is in a window, drop the window's opacity so the
+        // behind-window blur samples the desktop rather than a solid fill.
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.titlebarAppearsTransparent = true
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+        // updateNSView runs after the view is mounted, so the window now
+        // exists. makeNSView's early attempt saw a nil window, which is why
+        // the translucency never took. Reassert it here.
+        DispatchQueue.main.async { [weak nsView] in
+            guard let window = nsView?.window else { return }
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.titlebarAppearsTransparent = true
+        }
+    }
+}
+
+extension View {
+    /// Presents this sheet over the same behind-window frosted glass as the
+    /// main window, so every sheet shares one consistent translucency. Apply
+    /// to the content inside a `.sheet { }` closure.
+    func glassBackground() -> some View {
+        presentationBackground { VisualEffectBackground().ignoresSafeArea() }
+    }
+}
+
+// MARK: - Shared design language (see ~/Desktop/Apps/DesignSync)
+//
+// InputConfig converges on the same visual language as Aura and YapToText:
+// real Liquid Glass cards, one spacing/radius scale, hierarchical SF Symbols,
+// and colored icons that always carry a little transparency (never a flat
+// solid block). Reference implementations were ported from YapToText's
+// DesignSystem.swift rather than reinvented.
+
+/// One spacing scale for the whole app.
+enum Space {
+    static let xs: CGFloat = 4
+    static let s: CGFloat = 6
+    static let m: CGFloat = 10
+    static let l: CGFloat = 14
+}
+
+/// One radius / padding scale. Replaces the old grab-bag of 3/4/5/6/7/8/10/12
+/// literals scattered through the views.
+enum Metrics {
+    static let cardRadius: CGFloat = 18
+    static let sectionRadius: CGFloat = 18
+    /// Floating panels (the menu-bar popover) sit one notch tighter than cards.
+    static let panelRadius: CGFloat = 14
+    static let innerRadius: CGFloat = 10
+    static let badgeRadius: CGFloat = 9
+    static let cardPad: CGFloat = 14
+    static let gap: CGFloat = 14
+}
+
+extension View {
+    /// THE colored-icon treatment. A tinted SF Symbol is NEVER a flat 100%
+    /// solid block of color: every colored icon carries a little transparency
+    /// so it reads as a layered, glassy mark. Pairs with the global
+    /// `.symbolRenderingMode(.hierarchical)`. Transparency only, never a
+    /// gradient. Use in place of `.foregroundStyle(color)` on any colored icon.
+    func iconTint(_ color: Color, opacity: Double = 0.85) -> some View {
+        foregroundStyle(color.opacity(opacity))
+    }
+
+    /// The app's ONE glass surface treatment. Every glass surface in the app
+    /// (cards, pills, CTAs, toasts, overlays) routes through this helper, so
+    /// there is exactly one glass language and never a mixture.
+    ///
+    /// On macOS 26+ this is Apple's REAL Liquid Glass engine
+    /// (`.glassEffect`), tinted and interactive as requested. On macOS 14-25
+    /// (the App Store deployment floor) it falls back to a tinted material +
+    /// hairline stroke with identical layout.
+    @ViewBuilder
+    func liquidGlass<S: Shape>(in shape: S,
+                               tint: Color? = nil,
+                               interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            // Built in an inline closure so these imperative statements aren't
+            // parsed as view content by the @ViewBuilder body (a bare var/if
+            // here crashes swift-frontend in Release batch mode).
+            let glass: Glass = {
+                var g: Glass = .regular
+                if let tint { g = g.tint(tint) }
+                if interactive { g = g.interactive() }
+                return g
+            }()
+            self.glassEffect(glass, in: shape)
+        } else {
+            self
+                .background(
+                    shape.fill(.thinMaterial)
+                        // Tint wash so a tinted pill (Stop, hero CTA) keeps
+                        // its color; untinted passes Color.clear -> no-op.
+                        .overlay(shape.fill((tint ?? Color.clear).opacity(0.35)))
+                )
+                .overlay(shape.stroke((tint ?? .primary).opacity(0.12), lineWidth: 0.5))
+        }
+    }
+
+    /// THE single flat inner-surface style: a quiet recess (NOT glass) for
+    /// anything nested inside a glass card - icon badges, wells, tiles, rows.
+    /// Glass-inside-glass double-frosts and reads darker; the card is the
+    /// glass, everything nested is a recess so every box reads the same.
+    func innerWell(radius: CGFloat = Metrics.innerRadius) -> some View {
+        self
+            .background(Color.secondary.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5))
+    }
+
+    /// Shared hover affordance for custom `.plain` controls: a soft fill that
+    /// fades in on hover, replacing the hand-rolled per-view hover backgrounds.
+    func hoverFill(_ hovering: Bool, radius: CGFloat = Metrics.innerRadius) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(Color.primary.opacity(hovering ? 0.06 : 0))
+        )
+    }
+
+    /// The canonical scroll-edge treatment: fades content to transparent under
+    /// the title band so it dissolves into the window vibrancy instead of
+    /// colliding with the toolbar. Shared across Aura / InputConfig / YapToText
+    /// with the tuned finals (height 76, mid-stop 0.35 @ 0.45). Apply once at
+    /// the detail-pane level.
+    func headerFade() -> some View {
+        mask(
+            VStack(spacing: 0) {
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(0.35), location: 0.45),
+                    .init(color: .black, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: 76)
+                Rectangle().fill(.black)
+            }
+            .ignoresSafeArea()
+        )
+    }
+}
+
+/// A tinted SF Symbol on a glass squircle - translucent layered ink, never a
+/// solid block of color. Ported from YapToText's IconBadge.
+struct IconBadge: View {
+    let symbol: String
+    var tint: Color = .accentColor
+    var size: CGFloat = 32
+    /// True when `symbol` is the app's custom controller glyph rather than an
+    /// SF Symbol, so the badge draws the artwork instead.
+    var isGlyph: Bool = false
+
+    var body: some View {
+        Group {
+            if isGlyph {
+                ControllerGlyph(height: size * 0.5)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.46, weight: .semibold))
+            }
+        }
+        .iconTint(tint)
+        .frame(width: size, height: size)
+        .innerWell(radius: Metrics.badgeRadius)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The workhorse container: a floating Liquid Glass card with a semibold
+/// section-head title. Ported from YapToText's CardSection (using InputConfig's
+/// availability-gated `liquidGlass` so it still builds on macOS 14).
+struct CardSection<Content: View>: View {
+    let title: String?
+    var subtitle: String?
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String? = nil, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.m) {
+            if let title {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .accessibilityAddTraits(.isHeader)
+                    if let subtitle {
+                        Text(subtitle).font(.caption).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Metrics.cardPad)
+        .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.sectionRadius, style: .continuous))
+    }
+}
+
+/// One flat button look across the app: a SOLID fill, no gradient or glass
+/// sheen. Prominent = solid accent with white text; secondary = subtle neutral
+/// fill. Ported from YapToText's SolidButton.
+struct SolidButton: ButtonStyle {
+    /// Three capsule sizes, one look: regular for sheet/hero rows, compact for
+    /// dense utility rows, mini for the editor's per-binding micro buttons.
+    enum Size { case regular, compact, mini }
+
+    var tint: Color = .accentColor
+    var prominent: Bool = true
+    var size: Size = .regular
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// Back-compat with the earlier `compact:` spelling.
+    init(tint: Color = .accentColor, prominent: Bool = true, compact: Bool) {
+        self.init(tint: tint, prominent: prominent, size: compact ? .compact : .regular)
+    }
+
+    init(tint: Color = .accentColor, prominent: Bool = true, size: Size = .regular) {
+        self.tint = tint
+        self.prominent = prominent
+        self.size = size
+    }
+
+    private var font: Font {
+        switch size {
+        case .regular: return .body.weight(.medium)
+        case .compact: return .callout.weight(.medium)
+        case .mini:    return .caption2.weight(.medium)
+        }
+    }
+    private var hPad: CGFloat { size == .regular ? 14 : (size == .compact ? 10 : 7) }
+    private var vPad: CGFloat { size == .regular ? 6 : (size == .compact ? 4 : 2) }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(font)
+            // Button text is inviolable: one line, never wrapped or squashed
+            // vertically. Horizontal stays flexible so full-width labels
+            // (maxWidth: .infinity) still stretch across their row.
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, hPad)
+            .padding(.vertical, vPad)
+            .background(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(Color.secondary.opacity(0.16)),
+                        in: Capsule())
+            .contentShape(Capsule())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.72 : 1.0) : 0.4)
+    }
+}
+
+extension ButtonStyle where Self == SolidButton {
+    static var solid: SolidButton { SolidButton(prominent: true) }
+    static var solidSecondary: SolidButton { SolidButton(prominent: false) }
+    static var solidCompact: SolidButton { SolidButton(prominent: true, size: .compact) }
+    static var solidSecondaryCompact: SolidButton { SolidButton(prominent: false, size: .compact) }
+    static var solidMini: SolidButton { SolidButton(prominent: true, size: .mini) }
+    static var solidSecondaryMini: SolidButton { SolidButton(prominent: false, size: .mini) }
+}
+
+/// Hero call-to-action: an interactive tinted Liquid Glass capsule (spec
+/// section 5 "Hero CTA"). For welcome pages, onboarding, and promotional
+/// buttons - not ordinary form controls. Falls back to a tinted material
+/// capsule under macOS 26 via `liquidGlass`.
+struct GlassCTAButton: ButtonStyle {
+    var tint: Color = .accentColor
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        // Moderate glass-CTA metrics: a step up from SolidButton, but no
+        // fixed minimum width - the old hero sizing (H22/V11, minWidth 168)
+        // made the demo sheets' "Take me..." buttons read massive.
+        configuration.label
+            .font(.body.weight(.semibold))
+            // Same inviolable-label rule as SolidButton: one line, no vertical
+            // squash; horizontal stays flexible for full-width labels.
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .liquidGlass(in: Capsule(), tint: tint, interactive: true)
+            .contentShape(Capsule())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1.0) : 0.4)
+    }
+}
+
+extension ButtonStyle where Self == GlassCTAButton {
+    static var glassCTA: GlassCTAButton { GlassCTAButton() }
+}
+
 @main
 struct InputConfig: App {
     @StateObject private var appState = AppState()
@@ -104,6 +507,7 @@ struct InputConfig: App {
                 .environmentObject(appState.controllerService)
                 .environmentObject(appState.mappingEngine)
                 .environmentObject(appState.eightBitDoDetector)
+                .background(VisualEffectBackground().ignoresSafeArea())
                 .onAppear {
                     MenuBarController.shared.install(
                         presetStore: appState.presetStore,
@@ -113,6 +517,11 @@ struct InputConfig: App {
                     FrontmostAppWatcher.shared.install(
                         presetStore: appState.presetStore,
                         mappingEngine: appState.mappingEngine
+                    )
+                    // Apply the saved Dock-icon preference now that the window
+                    // is up. Defaults to visible (registered in AppState.init).
+                    AppState.applyDockIconVisible(
+                        UserDefaults.standard.bool(forKey: "InputConfig.showDockIcon")
                     )
                 }
         }

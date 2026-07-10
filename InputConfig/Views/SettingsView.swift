@@ -16,6 +16,12 @@ struct SettingsView: View {
     /// Mirrors the same `@AppStorage` key used by the main app scene so
     /// flipping this toggle immediately hides or shows the menu bar icon.
     @AppStorage("InputConfig.showMenuBarIcon") private var showMenuBarIcon = true
+    /// Controls the Dock icon (activation policy). Paired with the menu bar
+    /// icon by a see-saw rule so at least one is always visible.
+    @AppStorage("InputConfig.showDockIcon") private var showDockIcon = true
+    /// Mirrors the key ContentView reads to pin the developer activity log
+    /// under the detail pane. Off by default so the shipping UI stays clean.
+    @AppStorage("InputConfig.showDebugLog") private var showDebugLog = false
     /// Drives the system-wide "toggle most recent preset" hotkey. Same key
     /// AppState reads at launch to decide whether to register the chord.
     @AppStorage(GlobalHotKeyService.enabledDefaultsKey) private var globalHotkeyEnabled = false
@@ -30,9 +36,9 @@ struct SettingsView: View {
 
     /// When true, the engine reads pollHzOnAC vs pollHzOnBattery
     /// depending on the Mac's current power source and re-installs the
-    /// poll timer the moment that source changes. Off by default for
-    /// existing users so the single-rate behaviour stays.
-    @AppStorage("InputConfig.autoPollHzByPower") private var autoPollByPower: Bool = false
+    /// poll timer the moment that source changes. Defaults ON (also
+    /// registered in AppState) so polling adapts to power out of the box.
+    @AppStorage("InputConfig.autoPollHzByPower") private var autoPollByPower: Bool = true
     @AppStorage("InputConfig.pollHzOnAC") private var pollHzOnAC: Int = 120
     @AppStorage("InputConfig.pollHzOnBattery") private var pollHzOnBattery: Int = 60
 
@@ -49,6 +55,7 @@ struct SettingsView: View {
 
     enum SettingsTab: String, CaseIterable, Identifiable {
         case general = "General"
+        case advanced = "Advanced"
         case controllers = "Controllers"
         case about = "About"
 
@@ -56,6 +63,7 @@ struct SettingsView: View {
         var systemImage: String {
             switch self {
             case .general: return "gear"
+            case .advanced: return "slider.horizontal.3"
             case .controllers: return "gamecontroller"
             case .about: return "info.circle"
             }
@@ -68,14 +76,16 @@ struct SettingsView: View {
             // below the rounded corner via padding.
             Picker("", selection: $selectedTab) {
                 ForEach(SettingsTab.allCases) { tab in
-                    Label(tab.rawValue, systemImage: tab.systemImage)
-                        .tag(tab)
+                    Label { Text(tab.rawValue) } icon: {
+                        IconView(name: tab.systemImage, glyphHeight: 11)
+                    }
+                    .tag(tab)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .accessibilityLabel("Settings section")
-            .padding(.horizontal, 80)
+            .padding(.horizontal, 40)
             .padding(.top, 16)
             .padding(.bottom, 12)
 
@@ -84,6 +94,7 @@ struct SettingsView: View {
             Group {
                 switch selectedTab {
                 case .general: generalTab
+                case .advanced: advancedTab
                 case .controllers: controllersTab
                 case .about: aboutTab
                 }
@@ -92,9 +103,11 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingCursorRegions) {
             CursorRegionsView()
+                .glassBackground()
         }
         .sheet(isPresented: $showingStickRegions) {
             StickRegionsView()
+                .glassBackground()
         }
         // macOS Form needs more room. With sections containing descriptions
         // and toggles, 500 px clips the labels and right column. Widening
@@ -130,11 +143,9 @@ struct SettingsView: View {
                     if !accessibility.isTrusted {
                         HStack(spacing: 8) {
                             Button("Grant Access…") { accessibility.requestAccess() }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
+                                .buttonStyle(.solidCompact)
                             Button("Open Accessibility Settings") { accessibility.openSystemSettings() }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .buttonStyle(.solidSecondaryCompact)
                         }
                         Text("Click Grant Access, then turn on InputConfig under System Settings, Privacy and Security, Accessibility. This updates automatically once you do.")
                             .font(.caption)
@@ -147,12 +158,29 @@ struct SettingsView: View {
                     LaunchAtLoginToggleView()
                 }
 
-                section(title: "Menu Bar") {
+                section(title: "Dock & Menu Bar") {
+                    Toggle("Show Dock icon", isOn: $showDockIcon)
+                        .onChange(of: showDockIcon) { _, newValue in
+                            // See-saw: turning one off while the other is
+                            // already off pops the other back on, so InputConfig
+                            // is never left with no way to reopen it.
+                            if !newValue && !showMenuBarIcon {
+                                showMenuBarIcon = true
+                                MenuBarController.shared.setVisible(true)
+                            }
+                            AppState.applyDockIconVisible(newValue)
+                        }
+
                     Toggle("Show menu bar icon", isOn: $showMenuBarIcon)
                         .onChange(of: showMenuBarIcon) { _, newValue in
+                            if !newValue && !showDockIcon {
+                                showDockIcon = true
+                                AppState.applyDockIconVisible(true)
+                            }
                             MenuBarController.shared.setVisible(newValue)
                         }
-                    Text("When turned off, the gamecontroller icon in the macOS menu bar is hidden. The app stays running and all features remain available from the main window.")
+
+                    Text("Keep at least one of these on so you can always reach InputConfig. Hiding the Dock icon makes it a menu bar-only app (no Dock icon, no top menu bar); hiding the menu bar icon keeps it in the Dock. Turning one off while the other is already off switches the other back on.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -178,11 +206,24 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
+    // MARK: - Advanced
+
+    /// Advanced settings split out of General so the General tab stays short:
+    /// automation, reliability/diagnostics, polling, system stats, the global
+    /// gaming defaults, and data management.
+    private var advancedTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
                 section(title: "Automatic Preset Switching") {
                     Toggle("Switch presets when the front app changes",
                            isOn: $autoSwitchEnabled)
-                    Text("Presets can list apps in their Advanced Options; when one of those apps comes to the front, its preset activates by itself, and your previous preset comes back when you leave. Nothing switches unless a preset opts in.")
+                    Text("Presets can list apps in their Automation & Gaming Utilities panel; when one of those apps comes to the front, its preset activates by itself, and your previous preset comes back when you leave. Nothing switches unless a preset opts in.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -217,6 +258,12 @@ struct SettingsView: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
+
+                    Toggle("Show developer activity log", isOn: $showDebugLog)
+                    Text("Pins a live log of controller and mapping activity to the bottom of the main window. Handy while troubleshooting; off by default so the window stays clean.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 section(title: "Polling Rate") {
@@ -294,8 +341,7 @@ struct SettingsView: View {
                             Button("Pause") {
                                 mappingEngine.stop()
                             }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.solidSecondaryCompact)
                             .help("Stop the active preset. You can change the rate, then click Resume on the main screen to start again.")
                         }
                     } else if let last = mappingEngine.activePreset {
@@ -311,18 +357,12 @@ struct SettingsView: View {
                             Button("Resume") {
                                 mappingEngine.start(with: last)
                             }
-                            .controlSize(.small)
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.solidCompact)
                             .help("Re-start the most recently active preset with the chosen rate.")
                         }
-                    } else {
-                        Text("Default rate. Balances latency and battery life. New rate applies the moment you activate a preset.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    if pollHz > 120 {
+                    if !autoPollByPower && pollHz > 120 {
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
@@ -333,7 +373,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                    } else if pollHz < 120 {
+                    } else if !autoPollByPower && pollHz < 120 {
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "info.circle.fill")
                                 .foregroundStyle(.blue)
@@ -351,7 +391,7 @@ struct SettingsView: View {
                     SystemStatsPanel()
                 }
 
-                section(title: "Gaming Utilities") {
+                section(title: "Gaming Utilities (Global Defaults)") {
                     GamingUtilitiesPanel()
                 }
 
@@ -367,12 +407,15 @@ struct SettingsView: View {
                             let dataDir = appSupport.appendingPathComponent("InputConfig", isDirectory: true)
                             NSWorkspace.shared.activateFileViewerSelecting([dataDir])
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         Button("Export Backup…") {
                             exportBackup()
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         Button("Restore from Backup…") {
                             importBackup()
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                     }
                 }
             }
@@ -519,6 +562,8 @@ struct SettingsView: View {
             // Misc
             "InputConfig.tipCount",
             "InputConfig.seededExampleGroups.v1",
+            "InputConfig.seededExamples.v1",
+            "InputConfig.seededExampleNames.v1",
             "InputConfig.appliedDefaultGroupColors.v2",
         ]
         for key in exportedKeys {
@@ -652,7 +697,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
-                        .controlSize(.small)
+                        .buttonStyle(.solidSecondaryCompact)
                     }
                     .padding(.bottom, -4)
 
@@ -691,6 +736,7 @@ struct SettingsView: View {
                         Button("Open Cursor Regions Editor…") {
                             showingCursorRegions = true
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         Text("\(CursorRegionService.shared.allRegions().count) defined")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -707,6 +753,7 @@ struct SettingsView: View {
                         Button("Open Stick Regions Editor…") {
                             showingStickRegions = true
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         let leftCount = StickRegionService.shared.regions(forStick: 0).count
                         let rightCount = StickRegionService.shared.regions(forStick: 1).count
                         Text("\(leftCount) left / \(rightCount) right")
@@ -741,7 +788,7 @@ struct SettingsView: View {
                 if let gamepad = controllerService.rawHIDGamepadSlots[slot] {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Image(systemName: "gamecontroller.fill")
+                            ControllerGlyph(height: 14)
                                 .foregroundStyle(.green)
                                 .accessibilityHidden(true)
                             VStack(alignment: .leading) {
@@ -770,8 +817,7 @@ struct SettingsView: View {
     /// "no controllers" message visible without claiming the entire sheet.
     private var emptyControllersCard: some View {
         HStack(spacing: 14) {
-            Image(systemName: "gamecontroller")
-                .font(.system(size: 28))
+            ControllerGlyph(height: 22)
                 .foregroundStyle(.secondary)
                 .frame(width: 40)
             VStack(alignment: .leading, spacing: 4) {
@@ -862,7 +908,7 @@ struct SettingsView: View {
                     ForEach(Array(controllerService.connectedControllers.enumerated()), id: \.offset) { index, controller in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Image(systemName: "gamecontroller.fill")
+                                ControllerGlyph(height: 14)
                                     .foregroundStyle(.blue)
                                     .accessibilityHidden(true)
                                 VStack(alignment: .leading) {
@@ -1002,16 +1048,15 @@ struct SettingsView: View {
                         .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
                 )
 
-                // Tip jar.
+                // Tip jar. Promotional CTA, not a form control, so it takes the
+                // hero glass treatment rather than a bordered form button.
                 Button {
                     TipJarWindowController.shared.show()
                 } label: {
                     Label("Support Development", systemImage: "heart.fill")
                         .frame(minWidth: 200)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.pink)
+                .buttonStyle(GlassCTAButton(tint: .pink))
 
                 // Footer copyright.
                 Text("Copyright \u{00A9} 2026 Ryleigh Newman. All rights reserved.")

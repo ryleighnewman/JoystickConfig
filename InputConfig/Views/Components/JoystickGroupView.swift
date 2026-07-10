@@ -29,6 +29,10 @@ struct JoystickGroupView: View {
     /// Inline rename popover state for the "Custom name..." menu item.
     @State private var renamePopoverOpen: Bool = false
     @State private var renameDraft: String = ""
+    /// Stick Settings popover: set the deadzone across every axis binding
+    /// in this joystick in one move instead of expanding each row's Options.
+    @State private var showStickSettings = false
+    @State private var bulkDeadzone: Double = 0.25
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +56,10 @@ struct JoystickGroupView: View {
                 }
                 // Use `bindings.indices` instead of `Array(...).enumerated()`
                 // to avoid allocating a new array on every render.
-                LazyVStack(spacing: 2) {
+                // Plain VStack on purpose: lazy rows re-triggered heavy
+                // layout bursts under rapid page-down scrolling. Eager rows
+                // measured freeze-proof and CPU-idle during wheel scrolling.
+                VStack(spacing: 2) {
                     ForEach(joystick.bindings.indices, id: \.self) { index in
                         let binding = joystick.bindings[index]
                         // Serialize the input once and reuse it across the three
@@ -105,7 +112,7 @@ struct JoystickGroupView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(.background)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.25))
                 .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -180,6 +187,27 @@ struct JoystickGroupView: View {
                     .help("Undo sort")
                 }
 
+                Button {
+                    // Open on the current value: seed from the first axis
+                    // binding that has an explicit deadzone set.
+                    if let dz = joystick.bindings.first(where: {
+                        $0.input.type == .axis && $0.deadzone != nil
+                    })?.deadzone {
+                        bulkDeadzone = Double(dz)
+                    }
+                    showStickSettings = true
+                } label: {
+                    Image(systemName: "dial.low")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help("Stick settings: set the deadzone for every axis binding at once")
+                .accessibilityLabel("Stick settings")
+                .accessibilityHint("Sets the deadzone for every axis binding in this joystick at once.")
+                .popover(isPresented: $showStickSettings, arrowEdge: .bottom) {
+                    stickSettingsPopover
+                }
+
                 CopyIconButton(action: onDuplicate,
                                helpText: "Clone this joystick group",
                                size: .caption)
@@ -195,7 +223,52 @@ struct JoystickGroupView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.2))
+    }
+
+    // MARK: - Stick settings (bulk deadzone)
+
+    private var axisBindingIndices: [Int] {
+        joystick.bindings.indices.filter { joystick.bindings[$0].input.type == .axis }
+    }
+
+    private var stickSettingsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Stick Settings")
+                .font(.headline)
+            Text("Sets the inner deadzone for every axis binding in this joystick in one move. Individual bindings can still be fine-tuned afterwards in their Options.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Slider(value: $bulkDeadzone, in: 0...0.9) {
+                    Text("Deadzone")
+                }
+                .accessibilityValue("\(Int(bulkDeadzone * 100)) percent")
+                Text("\(Int(bulkDeadzone * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, alignment: .trailing)
+            }
+            HStack {
+                if axisBindingIndices.isEmpty {
+                    Text("No axis bindings in this joystick yet.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button("Apply to \(axisBindingIndices.count) axis binding\(axisBindingIndices.count == 1 ? "" : "s")") {
+                    for i in axisBindingIndices {
+                        joystick.bindings[i].deadzone = Float(bulkDeadzone)
+                    }
+                    showStickSettings = false
+                }
+                .buttonStyle(.solidCompact)
+                .disabled(axisBindingIndices.isEmpty)
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
     }
 
     /// Display name shown in the header chip. Priority:
@@ -309,6 +382,7 @@ struct JoystickGroupView: View {
                     .frame(width: 220)
                 HStack {
                     Button("Cancel") { renamePopoverOpen = false }
+                        .buttonStyle(.solidSecondaryCompact)
                     Spacer()
                     Button("Save") {
                         let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -316,7 +390,7 @@ struct JoystickGroupView: View {
                         renamePopoverOpen = false
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.solid)
                 }
             }
             .padding(12)

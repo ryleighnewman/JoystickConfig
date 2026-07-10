@@ -131,6 +131,7 @@ struct TouchpadCalibrationView: View {
             HStack {
                 Spacer()
                 Button("Close") { attemptClose() }
+                    .buttonStyle(.solidSecondary)
                     .keyboardShortcut(.cancelAction)
                     .accessibilityLabel("Close touchpad setup")
             }
@@ -198,12 +199,12 @@ struct TouchpadCalibrationView: View {
                     Button {
                         activeDevice = device
                     } label: {
-                        Label(device.displayName, systemImage: device.iconName)
+                        Label { Text(device.displayName) } icon: { MenuIcon(name: device.iconName) }
                     }
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: activeDevice.iconName)
+                    IconView(name: activeDevice.iconName, glyphHeight: 13)
                         .font(.callout)
                     Text(activeDevice.displayName)
                         .font(.callout.weight(.medium))
@@ -319,7 +320,7 @@ struct TouchpadCalibrationView: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "info.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(.blue)
+                    .iconTint(.blue)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No calibration needed")
                         .font(.subheadline.weight(.semibold))
@@ -342,7 +343,7 @@ struct TouchpadCalibrationView: View {
                 } label: {
                     Label("Go to Regions", systemImage: "arrow.right")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.solidSecondary)
             }
         }
     }
@@ -418,6 +419,7 @@ struct TouchpadCalibrationView: View {
             } label: {
                 Label("Quick Zero", systemImage: "scope")
             }
+            .buttonStyle(.solidSecondaryCompact)
             .disabled(!activeDevice.canQuickZero)
             .help(activeDevice.canQuickZero
                   ? "Mark the current finger position as the new origin"
@@ -433,7 +435,7 @@ struct TouchpadCalibrationView: View {
             } label: {
                 Label("Save Calibration", systemImage: "checkmark.seal.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.solid)
             .disabled(!canSaveCalibration)
             .help(canSaveCalibration
                   ? "Save the calibrated bounds"
@@ -448,7 +450,7 @@ struct TouchpadCalibrationView: View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.title2)
-                .foregroundStyle(.green)
+                .iconTint(.green)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Calibration saved and active")
                     .font(.subheadline.weight(.semibold))
@@ -573,6 +575,7 @@ struct TouchpadCalibrationView: View {
             } label: {
                 Label("Add Region", systemImage: "plus.rectangle")
             }
+            .buttonStyle(.solidSecondaryCompact)
             .disabled(drawingNewRegion || regions.count >= 16)
             if drawingNewRegion {
                 Button("Cancel") {
@@ -580,12 +583,14 @@ struct TouchpadCalibrationView: View {
                     dragStart = nil
                     dragCurrent = nil
                 }
+                .buttonStyle(.solidSecondaryCompact)
             }
             Button {
                 applyDefault1to16()
             } label: {
                 Label("Apply default 1 to 16", systemImage: "square.grid.4x3.fill")
             }
+            .buttonStyle(.solidSecondaryCompact)
             .help("Replace regions with a 4 by 4 grid and bind each to keys 1 to 9, 0, F1 to F6 in the active preset")
             .disabled(presetStore.activePresetId == nil)
             if showAppliedDefaultsToast {
@@ -734,7 +739,7 @@ struct TouchpadCalibrationView: View {
                 Image(systemName: "link")
                     .foregroundStyle(Color.accentColor)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .disabled(presetStore.activePresetId == nil)
             .help(presetStore.activePresetId == nil
                   ? "Open or create a preset to bind this region"

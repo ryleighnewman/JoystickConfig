@@ -116,7 +116,14 @@ struct PresetEditorView: View {
         NavigationStack {
             ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                // Plain VStack, deliberately NOT lazy. The editor has only a
+                // handful of top-level sections, but one of them (a joystick
+                // group) can be thousands of points tall. LazyVStack's item
+                // phase tracking oscillates on huge children during fast
+                // scrolling (LazyLayoutViewCache.updateItemPhase kept
+                // re-dirtying the graph mid-layout), hanging the app. Eager
+                // layout is deterministic and converges in one pass.
+                VStack(alignment: .leading, spacing: 16) {
                     if enginePausedNotice {
                         enginePausedBanner
                     }
@@ -156,7 +163,7 @@ struct PresetEditorView: View {
                             .frame(maxWidth: .infinity)
                             .padding(12)
                             .background(
-                                RoundedRectangle(cornerRadius: 8)
+                                RoundedRectangle(cornerRadius: Metrics.innerRadius, style: .continuous)
                                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [6]))
                                     .foregroundStyle(.green.opacity(0.5))
                             )
@@ -166,15 +173,38 @@ struct PresetEditorView: View {
                     Divider()
                         .padding(.vertical, 8)
 
-                    // Per-preset Automation: cursor utilities + auto-
+                    // Per-preset Automation: cursor / gaming utilities + auto-
                     // launch an app on activation. The collapsed state
                     // is a single-line summary; expanding reveals the
                     // toggles + path picker.
                     PresetAutomationSection(automation: $preset.automation)
                         .id("editor-automation")
 
-                    DriveModeSection(driveConfig: $preset.driveConfig)
-                        .id("editor-drive")
+                    // MARK: Accessibility Tools Suite
+                    // Alternative-input schemes built for accessibility, with
+                    // One-Stick Driving as the first tool. Anchored at the
+                    // bottom as its own named category so it reads as a suite
+                    // that will grow, not a stray extra.
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "figure.roll")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Accessibility Tools Suite")
+                                    .font(.headline)
+                                Text("Alternative input schemes built for accessibility.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isHeader)
+
+                        DriveModeSection(driveConfig: $preset.driveConfig)
+                            .id("editor-drive")
+                    }
+                    .padding(.top, 6)
                 }
                 .padding(20)
                 // Transparent tap-anywhere layer that releases keyboard
@@ -188,6 +218,10 @@ struct PresetEditorView: View {
                         .onTapGesture { focusedHeaderField = nil }
                 )
             }
+            // Content dissolves under the (now background-free) toolbar so the
+            // top of the box reads like the glass body, matching the main
+            // window instead of a distinct toolbar band.
+            .headerFade()
             .navigationTitle("Edit Bindings & Mappings")
             .overlay(alignment: .top) {
                 // Brief confirmation toast for the Quick Zero toolbar
@@ -199,7 +233,7 @@ struct PresetEditorView: View {
                         .font(.callout.weight(.medium))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.regularMaterial, in: Capsule())
+                        .liquidGlass(in: Capsule())
                         .overlay(Capsule().stroke(Color.accentColor.opacity(0.4), lineWidth: 1))
                         .padding(.top, 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -215,6 +249,7 @@ struct PresetEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .buttonStyle(.solidSecondary)
                         .spotlightAnchor(SpotlightID.editorCancel)
                         .accessibilityLabel("Cancel editing")
                         .accessibilityHint("Discards unsaved changes and closes the editor")
@@ -224,6 +259,7 @@ struct PresetEditorView: View {
                         onSave(preset)
                         dismiss()
                     }
+                    .buttonStyle(.solid)
                     .spotlightAnchor(SpotlightID.editorSave)
                     .accessibilityLabel("Save preset")
                     .accessibilityHint("Saves the current bindings and closes the editor")
@@ -236,6 +272,7 @@ struct PresetEditorView: View {
                     } label: {
                         Image(systemName: "arrow.uturn.backward")
                     }
+                    .buttonStyle(.solidSecondaryCompact)
                     .disabled(undoStack.isEmpty)
                     .keyboardShortcut("z", modifiers: .command)
                     .help("Undo")
@@ -246,6 +283,7 @@ struct PresetEditorView: View {
                     } label: {
                         Image(systemName: "arrow.uturn.forward")
                     }
+                    .buttonStyle(.solidSecondaryCompact)
                     .disabled(redoStack.isEmpty)
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .help("Redo")
@@ -259,6 +297,7 @@ struct PresetEditorView: View {
                         } label: {
                             Label("Calibrate Touchpad", systemImage: "rectangle.and.hand.point.up.left.fill")
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         .help("Calibrate the touchpad surface so swipes feel uniform")
                     }
                 }
@@ -273,6 +312,7 @@ struct PresetEditorView: View {
                         } label: {
                             Label("Calibrate Motion", systemImage: "gyroscope")
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         .help("Set the resting zero for the controller's gyro and accelerometer")
                     }
                     // Quick zero gyro: lives right next to the Motion
@@ -286,6 +326,7 @@ struct PresetEditorView: View {
                         } label: {
                             Label("Quick Zero", systemImage: "scope")
                         }
+                        .buttonStyle(.solidSecondaryCompact)
                         .help("Snapshot current gyro reading as the new zero (place controller flat first)")
                     }
                 }
@@ -319,19 +360,29 @@ struct PresetEditorView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.secondary.opacity(0.16), in: Capsule())
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                     .help("More: sort, undo sort, convert controller type")
                     .accessibilityLabel("More actions")
                     .accessibilityHint("Sort all bindings, undo sort, or convert controller type")
                 }
             }
+            .toolbarBackground(.hidden, for: .windowToolbar)
             .sheet(isPresented: $showingTouchpadCalibration) {
                 TouchpadCalibrationView()
                     .environmentObject(presetStore)
+                    .glassBackground()
             }
             .sheet(isPresented: $showingMotionCalibration) {
                 MotionCalibrationView()
                     .environmentObject(controllerService)
+                    .glassBackground()
             }
             .alert("Calibrate motion first?",
                    isPresented: $pendingMotionCalibrationOffer) {
@@ -524,7 +575,7 @@ struct PresetEditorView: View {
         HStack(spacing: 10) {
             Image(systemName: "pause.circle.fill")
                 .font(.title3)
-                .foregroundStyle(.yellow)
+                .iconTint(.yellow)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Outputs paused while editing")
                     .font(.subheadline.weight(.semibold))

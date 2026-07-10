@@ -32,37 +32,46 @@ struct HelpGuideView: View {
             .navigationTitle("Help Guides")
             .frame(minWidth: 240)
         } detail: {
-            if let guide = selectedGuide {
-                guideDetail(guide)
-            } else {
-                ContentUnavailableView("Select a guide",
-                                        systemImage: "book.closed",
-                                        description: Text("Choose a topic from the sidebar to read."))
+            Group {
+                if let guide = selectedGuide {
+                    guideDetail(guide)
+                } else {
+                    ContentUnavailableView("Select a guide",
+                                            systemImage: "book.closed",
+                                            description: Text("Choose a topic from the sidebar to read."))
+                }
             }
+            // Content dissolves into the window vibrancy under the transparent
+            // titlebar, matching the main window (spec section 3).
+            .headerFade()
         }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .frame(minWidth: 820, minHeight: 540)
     }
 
     @ViewBuilder
     private func guideDetail(_ guide: HelpGuide) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Metrics.gap) {
+                // Centered, calm header: small-caps category, big title,
+                // secondary summary. Reads like an Apple settings page.
+                VStack(spacing: 6) {
                     Text(guide.category.uppercased())
-                        .font(.caption2)
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.tertiary)
                         .tracking(0.8)
                     Text(guide.title)
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
+                        .font(.largeTitle.weight(.semibold))
+                        .multilineTextAlignment(.center)
                     Text(guide.summary)
                         .font(.body)
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 2)
                 }
-                .padding(.bottom, 4)
-
-                Divider()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
 
                 ForEach(guide.sections, id: \.heading) { section in
                     sectionView(section)
@@ -72,17 +81,21 @@ struct HelpGuideView: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
-            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle(guide.title)
     }
 
+    /// Each guide section is one quiet glass card. Steps are plain
+    /// Apple-style numbered lines - no badges, no accent ink, no inner
+    /// panels - so the content is the loudest thing on the page.
     @ViewBuilder
     private func sectionView(_ section: HelpSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.m) {
             Text(section.heading)
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
 
             if !section.body.isEmpty {
                 Text(section.body)
@@ -92,9 +105,9 @@ struct HelpGuideView: View {
             }
 
             if !section.steps.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 9) {
                     ForEach(Array(section.steps.enumerated()), id: \.offset) { index, step in
-                        HStack(alignment: .top, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text("\(index + 1).")
                                 .font(.body.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -105,10 +118,12 @@ struct HelpGuideView: View {
                         }
                     }
                 }
-                .padding(.leading, 4)
+                .padding(.top, 2)
             }
         }
-        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Metrics.cardPad + 2)
+        .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.sectionRadius, style: .continuous))
     }
 }
 
@@ -127,11 +142,16 @@ final class HelpGuideWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: HelpGuideView())
+        let hosting = NSHostingController(rootView: HelpGuideView()
+            .background(VisualEffectBackground().ignoresSafeArea()))
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "InputConfig Help"
         newWindow.setContentSize(NSSize(width: 880, height: 580))
-        newWindow.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        // .fullSizeContentView lets the behind-window blur reach under the
+        // transparent titlebar; without it the titlebar shows straight through
+        // to the desktop (the "completely transparent top bar" bug).
+        newWindow.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+        newWindow.titlebarAppearsTransparent = true
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
         window = newWindow

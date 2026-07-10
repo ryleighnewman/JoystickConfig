@@ -41,7 +41,7 @@ struct DebugLogView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.2))
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
@@ -227,7 +227,7 @@ struct DebugLogView: View {
             .frame(height: logHeight)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.black.opacity(0.85))
+                    .fill(Color.black.opacity(0.3))
             )
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
