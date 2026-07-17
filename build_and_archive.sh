@@ -59,7 +59,7 @@ if [ "$MODE" = "archive" ]; then
     echo "=== Archiving InputConfig ==="
     xcodebuild -scheme InputConfig \
         -configuration Release \
-        -destination 'platform=macOS,arch=arm64' \
+        -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
         archive \
         -archivePath build/InputConfig.xcarchive
@@ -90,7 +90,7 @@ elif [ "$MODE" = "install" ]; then
     echo "=== Building InputConfig (Release) for install ==="
     xcodebuild -scheme InputConfig \
         -configuration Release \
-        -destination 'platform=macOS,arch=arm64' \
+        -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
         build
 
@@ -129,7 +129,7 @@ else
     # which can hang at CreateBuildOperation; the command-line build does not.
     xcodebuild -scheme InputConfig \
         -configuration "$CONFIG" \
-        -destination 'platform=macOS,arch=arm64' \
+        -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
         build
 
