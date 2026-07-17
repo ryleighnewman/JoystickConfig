@@ -637,6 +637,7 @@ struct MotionCalibrationView: View {
         )
         MotionCalibrationService.shared.save(cal)
         lastSavedKey = key
+        AccessibilityNotification.Announcement("Motion calibration saved").post()
     }
 }
 

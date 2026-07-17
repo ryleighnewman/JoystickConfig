@@ -389,7 +389,8 @@ final class TestBenchWindowController {
             return
         }
         let hosting = NSHostingController(rootView: TestBenchView()
-            .background(VisualEffectBackground().ignoresSafeArea()))
+            .background(VisualEffectBackground().ignoresSafeArea())
+            .reduceMotionFriendly())
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "InputConfig Test Bench"
         newWindow.setContentSize(NSSize(width: 820, height: 600))

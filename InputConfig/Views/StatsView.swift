@@ -688,12 +688,6 @@ struct StatsView: View {
         return "\(s / 86400)d \((s % 86400) / 3600)h"
     }
 
-    private func dayShort(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "d"
-        return fmt.string(from: date)
-    }
-
     private func sectionHeader(_ text: String) -> some View {
         Text(text)
             .font(.subheadline.weight(.semibold))
@@ -785,6 +779,7 @@ struct StatTileView: View {
     let detail: StatDetail
     let onSelect: (StatDetail) -> Void
     @State private var hovering: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -829,8 +824,8 @@ struct StatTileView: View {
                     .stroke(hovering ? detail.tint.opacity(0.55) : Color.clear,
                             lineWidth: 1)
             )
-            .scaleEffect(hovering ? 1.02 : 1.0)
-            .animation(.easeOut(duration: 0.12), value: hovering)
+            .scaleEffect(reduceMotion ? 1.0 : (hovering ? 1.02 : 1.0))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
         }
         .buttonStyle(.plain)
         // macOS otherwise draws an accent focus ring around the first

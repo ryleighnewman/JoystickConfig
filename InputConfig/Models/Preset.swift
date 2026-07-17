@@ -326,6 +326,35 @@ struct PresetAutomation: Codable, Hashable {
     var autoActivateBundleIDs: [String]?
 }
 
+extension PresetAutomation {
+    enum CodingKeys: String, CodingKey {
+        case launchAppPath, launchURL, confineCursor, confineBufferPx
+        case autoRecenterCursor, autoRecenterIntervalMs, hideCursorWhileActive
+        case sensitivityMultiplier, autoActivateBundleIDs
+    }
+
+    /// Lenient decode: each field falls back to its default when missing.
+    /// Swift's synthesized Decodable emits `decode` (not decodeIfPresent) for
+    /// non-optional stored properties and throws keyNotFound on an absent key,
+    /// which would take the whole Preset decode down and silently drop the
+    /// preset from the sidebar. Adding one new automation field in a future
+    /// build must never vanish a user's existing presets. Matches DriveConfig.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var a = PresetAutomation()
+        a.launchAppPath = try c.decodeIfPresent(String.self, forKey: .launchAppPath) ?? a.launchAppPath
+        a.launchURL = try c.decodeIfPresent(String.self, forKey: .launchURL) ?? a.launchURL
+        a.confineCursor = try c.decodeIfPresent(Bool.self, forKey: .confineCursor) ?? a.confineCursor
+        a.confineBufferPx = try c.decodeIfPresent(Double.self, forKey: .confineBufferPx) ?? a.confineBufferPx
+        a.autoRecenterCursor = try c.decodeIfPresent(Bool.self, forKey: .autoRecenterCursor) ?? a.autoRecenterCursor
+        a.autoRecenterIntervalMs = try c.decodeIfPresent(Double.self, forKey: .autoRecenterIntervalMs) ?? a.autoRecenterIntervalMs
+        a.hideCursorWhileActive = try c.decodeIfPresent(Bool.self, forKey: .hideCursorWhileActive) ?? a.hideCursorWhileActive
+        a.sensitivityMultiplier = try c.decodeIfPresent(Double.self, forKey: .sensitivityMultiplier) ?? a.sensitivityMultiplier
+        a.autoActivateBundleIDs = try c.decodeIfPresent([String].self, forKey: .autoActivateBundleIDs) ?? a.autoActivateBundleIDs
+        self = a
+    }
+}
+
 /// A complete preset containing name, tag, and joystick mappings
 /// One-stick "drive" mapping: turns a single analog stick into a full
 /// vehicle control scheme the way a power wheelchair drives from one

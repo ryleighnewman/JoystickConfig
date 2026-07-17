@@ -65,6 +65,7 @@ struct ControllerProfile: Equatable {
         var axisByteOffsets: [Int]       // Byte offset of each axis, payload-relative
         var axisByteWidths: [Int]        // Per-axis: 1 (8-bit) or 2 (16-bit); parallel to axisByteOffsets
         var axisIsSignedFlags: [Bool]    // Per-axis: signed-centred-at-0 vs unsigned-centred-at-midpoint
+        var axisUsages: [Int] = []       // Per-axis HID usage (0x30 X, 0x31 Y, 0x32 Z, 0x33 Rx, 0x34 Ry, 0x35 Rz); parallel to axisByteOffsets. Empty = unknown, decoder falls back to positional Y-flip.
         var hatByteOffset: Int?          // Byte that holds the 4-bit hat direction (kept for display/tests; hatBitOffset is authoritative)
         var triggerByteOffsets: [Int]    // Byte offsets of analogue triggers (0-255), payload-relative
         var reportSize: Int              // Expected payload bytes (excluding the leading report ID byte if present)

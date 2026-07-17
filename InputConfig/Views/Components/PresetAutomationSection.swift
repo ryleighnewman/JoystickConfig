@@ -386,9 +386,9 @@ struct DriveModeSection: View {
                     Spacer()
                     if driveConfig?.enabled == true {
                         Text("On")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.green.opacity(0.2)))
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(Capsule().fill(Color.green.opacity(0.16)))
                             .foregroundStyle(.green)
                             .accessibilityHidden(true)
                     }
@@ -411,16 +411,17 @@ struct DriveModeSection: View {
             if axes != axisValues { axisValues = axes }
             stepCar()
         }
+        .debugOneStick(expanded: $expanded, enable: isOn)
     }
 
     // MARK: - Live feedback (while actually driving)
     @ViewBuilder private var liveFeedback: some View {
         if let s = mappingEngine.driveLiveState {
             HStack(spacing: 10) {
-                Text(s.reverse ? "REVERSE" : "DRIVE")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill((s.reverse ? Color.orange : Color.green).opacity(0.25)))
+                Text(s.reverse ? "Reverse" : "Drive")
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill((s.reverse ? Color.orange : Color.green).opacity(0.18)))
                     .foregroundStyle(s.reverse ? .orange : .green)
                 miniBar("Power", Double(s.throttle), s.reverse ? .orange : .green)
                 miniBar("Brake", Double(s.brake), .red)
@@ -461,10 +462,10 @@ struct DriveModeSection: View {
                     .accessibilityValue(demoReversing ? "Reversing" : "Driving, speed \(Int(min(100, abs(carSpeed) / 1.5))) percent")
 
                 VStack(spacing: 10) {
-                    Text(demoReversing ? "REVERSE" : "DRIVE")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill((demoReversing ? Color.orange : Color.green).opacity(0.25)))
+                    Text(demoReversing ? "Reverse" : "Drive")
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill((demoReversing ? Color.orange : Color.green).opacity(0.18)))
                         .foregroundStyle(demoReversing ? .orange : .green)
 
                     VStack(spacing: 2) {
@@ -588,7 +589,9 @@ struct DriveModeSection: View {
             var x = Double(axisValues[c.steerAxis] ?? 0)
             var fwd: Double
             if c.throttleIsTrigger {
-                fwd = (Double(axisValues[c.throttleAxis] ?? -1) + 1) / 2
+                // Triggers rest at 0 (0...1), matching the engine. The old
+                // (v+1)/2 remap left the preview idling forward at ~43%.
+                fwd = max(0, Double(axisValues[c.throttleAxis] ?? 0))
             } else {
                 fwd = -Double(axisValues[c.throttleAxis] ?? 0)
             }

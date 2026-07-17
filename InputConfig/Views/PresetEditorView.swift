@@ -133,26 +133,35 @@ struct PresetEditorView: View {
                     Divider()
 
                     ForEach(preset.joysticks.indices, id: \.self) { index in
-                        let joystick = preset.joysticks[index]
-                        JoystickGroupView(
-                            joystick: binding(for: index),
-                            joystickIndex: index,
-                            controllerName: controllerService.controllerName(at: index),
-                            onAddBinding: { addBinding(to: index) },
-                            onRemoveBinding: { bindIdx in removeBinding(at: bindIdx, from: index) },
-                            onDuplicateBinding: { bindIdx in duplicateBinding(at: bindIdx, in: index) },
-                            onScanInput: { bindIdx in startScan(joystickIndex: index, bindingIndex: bindIdx) },
-                            onSortBindings: { sortBindings(in: index) },
-                            onDuplicate: { duplicateJoystick(at: index) },
-                            onRemoveJoystick: { removeJoystick(at: index) },
-                            pulsingBindingID: pulsingBindingID,
-                            // Plain values so the row views stay free of
-                            // store subscriptions; used by the App Action
-                            // output's target-preset picker.
-                            availablePresets: presetStore.presets.map { (id: $0.id, name: $0.name) }
-                        )
-                        .id(joystick.id)
+                        // Guard the subscript: while a group is being removed, a
+                        // retained JoystickGroupView can re-render (on a live
+                        // controller publish) with a now-out-of-range index.
+                        if preset.joysticks.indices.contains(index) {
+                            let joystick = preset.joysticks[index]
+                            JoystickGroupView(
+                                joystick: binding(for: index),
+                                joystickIndex: index,
+                                controllerName: controllerService.controllerName(at: index),
+                                onAddBinding: { addBinding(to: index) },
+                                onRemoveBinding: { bindIdx in removeBinding(at: bindIdx, from: index) },
+                                onDuplicateBinding: { bindIdx in duplicateBinding(at: bindIdx, in: index) },
+                                onScanInput: { bindIdx in startScan(joystickIndex: index, bindingIndex: bindIdx) },
+                                onSortBindings: { sortBindings(in: index) },
+                                onDuplicate: { duplicateJoystick(at: index) },
+                                onRemoveJoystick: { removeJoystick(at: index) },
+                                pulsingBindingID: pulsingBindingID,
+                                // Plain values so the row views stay free of
+                                // store subscriptions; used by the App Action
+                                // output's target-preset picker.
+                                availablePresets: presetStore.presets.map { (id: $0.id, name: $0.name) }
+                            )
+                            .id(joystick.id)
+                        }
                     }
+                    // Suppress the implicit remove transition so a deleted group
+                    // is not retained (and re-rendered against a stale index)
+                    // during a fade, mirroring the bindings list.
+                    .animation(nil, value: preset.joysticks.count)
 
                     Button {
                         withAnimation {
@@ -276,6 +285,7 @@ struct PresetEditorView: View {
                     .disabled(undoStack.isEmpty)
                     .keyboardShortcut("z", modifiers: .command)
                     .help("Undo")
+                    .accessibilityLabel("Undo")
                 }
                 ToolbarItem(placement: .automatic) {
                     Button {
@@ -287,6 +297,7 @@ struct PresetEditorView: View {
                     .disabled(redoStack.isEmpty)
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .help("Redo")
+                    .accessibilityLabel("Redo")
                 }
                 // Touchpad calibration button - only visible when a
                 // touchpad-capable controller (DualSense / DS4) is connected.
@@ -664,9 +675,13 @@ struct PresetEditorView: View {
     // MARK: - Binding Helpers
 
     private func binding(for joystickIndex: Int) -> SwiftUI.Binding<JoystickMapping> {
+        // Bounds-safe: a binding captured by a group that is mid-removal must
+        // never trap if it is read once more before SwiftUI tears the row down.
         SwiftUI.Binding(
-            get: { preset.joysticks[joystickIndex] },
-            set: { preset.joysticks[joystickIndex] = $0 }
+            get: { preset.joysticks.indices.contains(joystickIndex)
+                   ? preset.joysticks[joystickIndex] : JoystickMapping() },
+            set: { if preset.joysticks.indices.contains(joystickIndex) {
+                       preset.joysticks[joystickIndex] = $0 } }
         )
     }
 
@@ -776,7 +791,12 @@ struct PresetEditorView: View {
                 return MotionCalibrationService.shared.isCalibrated(forKey: key)
             }
             if !anyCalibrated {
+                // Show ONLY the calibration offer, not the auto-map dialog on
+                // top of it. The motion input is already recorded on the
+                // binding; the user calibrates first, then wires the output.
                 pendingMotionCalibrationOffer = true
+                scanningBinding = nil
+                return
             }
         }
 

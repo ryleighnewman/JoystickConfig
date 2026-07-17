@@ -28,6 +28,9 @@ struct BindingRowView: View {
     /// plain values for the same previewability reason as extraButtons.
     var availablePresets: [(id: UUID, name: String)] = []
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+
     @State private var showAdvanced = false
     @State private var showMacroEditor = false
     @State private var showDeadzoneCalibration = false
@@ -65,21 +68,6 @@ struct BindingRowView: View {
     private let actionsWidth: CGFloat = 48
     private let colGap: CGFloat = 8
 
-    /// Input types offered in the picker. The `.extKey` / `.extMouse`
-    /// "keyboard / mouse as an input source" types were removed: reading
-    /// the system keystroke stream needs the Input Monitoring /
-    /// Accessibility permission, which App Store review (2.4.5) forbids
-    /// for this purpose. We still surface whichever type a *legacy*
-    /// preset already has so its picker doesn't render blank, but new
-    /// bindings can't select them.
-    private var bindableInputTypes: [InputType] {
-        // Both keyboard (.extKey) and mouse (.extMouse) as input sources ride
-        // on the approved Accessibility permission - mouse via a listen-only
-        // CGEventTap, keyboard via NSEvent monitors - so both are selectable
-        // for new bindings. Neither uses Input Monitoring.
-        InputType.allCases
-    }
-
     /// Total width of input columns (for sub-row indentation)
     private var inputColumnsWidth: CGFloat {
         dragWidth + scanColWidth + typeColWidth + indexColWidth + dirColWidth + arrowWidth + colGap * 6
@@ -103,6 +91,17 @@ struct BindingRowView: View {
                                 .fill(Color.secondary.opacity(0.12))
                         )
                         .frame(width: 32, alignment: .leading)
+                }
+
+                // Non-color firing cue: the green highlight alone isn't
+                // distinguishable with Differentiate Without Color on, so add
+                // a bolt while the row is firing. VoiceOver already announces
+                // the highlight state, hence the hidden marker.
+                if isHighlighted && differentiateWithoutColor {
+                    Image(systemName: "bolt.fill")
+                        .font(.caption2)
+                        .iconTint(.green)
+                        .accessibilityHidden(true)
                 }
 
                 // Drag handle
@@ -298,6 +297,7 @@ struct BindingRowView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
+        .debugExpandOptions($showAdvanced)
         .sheet(isPresented: $showDeadzoneCalibration) {
             DeadzoneCalibrationView(
                 axisIndex: binding.input.index,
@@ -1418,6 +1418,7 @@ struct BindingRowView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove this output")
 
             Spacer(minLength: 4)
         }
@@ -1440,7 +1441,7 @@ struct BindingRowView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 7))
+                            .font(.system(size: 9))
                         Text("Options")
                             .font(.system(size: 9))
                     }
@@ -1785,15 +1786,18 @@ struct BindingRowView: View {
         Image(systemName: "arrow.right")
             .font(.caption)
             .foregroundStyle(isHighlighted ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
-            .offset(x: arrowShoot ? 5 : -5)
-            .animation(arrowShoot
-                       ? .easeIn(duration: 0.3).repeatForever(autoreverses: false)
-                       : .easeOut(duration: 0.15),
+            // Static when Reduce Motion is on; the green tint alone signals firing.
+            .offset(x: reduceMotion ? 0 : (arrowShoot ? 5 : -5))
+            .animation(reduceMotion
+                       ? nil
+                       : arrowShoot
+                       ? Animation.easeIn(duration: 0.3).repeatForever(autoreverses: false)
+                       : Animation.easeOut(duration: 0.15),
                        value: arrowShoot)
             .frame(width: arrowWidth)
             .accessibilityHidden(true)
             .onChange(of: isHighlighted) { _, firing in
-                arrowShoot = firing
+                arrowShoot = reduceMotion ? false : firing
             }
     }
 
@@ -2257,6 +2261,7 @@ struct BindingRowView: View {
                 .buttonStyle(.plain)
                 .disabled(index == 0)
                 .help("Move step up")
+                .accessibilityLabel("Move step up")
 
                 Button { moveMacroStep(at: index, by: 1) } label: {
                     Image(systemName: "chevron.down")
@@ -2265,6 +2270,7 @@ struct BindingRowView: View {
                 .buttonStyle(.plain)
                 .disabled(index >= (binding.macroSteps?.count ?? 0) - 1)
                 .help("Move step down")
+                .accessibilityLabel("Move step down")
 
                 Button { duplicateMacroStep(at: index) } label: {
                     Image(systemName: "plus.square.on.square")
@@ -2272,6 +2278,7 @@ struct BindingRowView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Duplicate step")
+                .accessibilityLabel("Duplicate step")
             }
             .foregroundStyle(.secondary)
 
@@ -2286,6 +2293,7 @@ struct BindingRowView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove this macro step")
 
             Spacer()
         }
@@ -2481,13 +2489,6 @@ struct BindingRowView: View {
         )
     }
 
-    private func mouseButtonBinding(at index: Int) -> SwiftUI.Binding<Int> {
-        SwiftUI.Binding(
-            get: { binding.outputs[index].mouseButtonIndex ?? 0 },
-            set: { binding.outputs[index].mouseButtonIndex = $0 }
-        )
-    }
-
     private func mouseAxisDirBinding(at index: Int) -> SwiftUI.Binding<String> {
         SwiftUI.Binding(
             get: {
@@ -2514,13 +2515,6 @@ struct BindingRowView: View {
         )
     }
 
-    private func speedIntBinding(at index: Int) -> SwiftUI.Binding<Int> {
-        SwiftUI.Binding(
-            get: { binding.outputs[index].speed ?? 6 },
-            set: { binding.outputs[index].speed = max(1, min(50, $0)) }
-        )
-    }
-
     /// TextField binding that reads from the live drag mirror so the box
     /// updates while the user is sliding, and writes go to both the mirror
     /// and the underlying preset (so typing into the field still works).
@@ -2540,24 +2534,10 @@ struct BindingRowView: View {
 
     // MARK: - MIDI Bindings
 
-    private func midiNoteBinding(at index: Int) -> SwiftUI.Binding<Int> {
-        SwiftUI.Binding(
-            get: { binding.outputs[index].midiNote ?? 60 },
-            set: { binding.outputs[index].midiNote = max(0, min(127, $0)) }
-        )
-    }
-
     private func midiVelocityBinding(at index: Int) -> SwiftUI.Binding<Int> {
         SwiftUI.Binding(
             get: { binding.outputs[index].midiVelocity ?? 100 },
             set: { binding.outputs[index].midiVelocity = max(0, min(127, $0)) }
-        )
-    }
-
-    private func midiCCNumberBinding(at index: Int) -> SwiftUI.Binding<Int> {
-        SwiftUI.Binding(
-            get: { binding.outputs[index].midiCCNumber ?? 1 },
-            set: { binding.outputs[index].midiCCNumber = max(0, min(127, $0)) }
         )
     }
 

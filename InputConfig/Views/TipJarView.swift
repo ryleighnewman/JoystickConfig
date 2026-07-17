@@ -352,7 +352,8 @@ final class TipJarWindowController {
             return
         }
         let hosting = NSHostingController(rootView: TipJarView()
-            .background(VisualEffectBackground().ignoresSafeArea()))
+            .background(VisualEffectBackground().ignoresSafeArea())
+            .reduceMotionFriendly())
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Support InputConfig"
         newWindow.setContentSize(NSSize(width: 520, height: 640))

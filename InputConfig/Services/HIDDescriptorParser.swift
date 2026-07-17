@@ -256,7 +256,7 @@ enum HIDDescriptorParser {
         // Triples kept together so per-axis width / signedness survive
         // the sort. Earlier versions stored single width/signed values
         // and the LAST axis won, which scrambled mixed 8/16-bit pads.
-        var axesAggregated: [(byte: Int, width: Int, signed: Bool)] = []
+        var axesAggregated: [(byte: Int, width: Int, signed: Bool, usage: Int)] = []
         var triggers: [Int] = []
         var hatBit: Int? = nil
         var hatMin: Int = 0
@@ -282,7 +282,8 @@ enum HIDDescriptorParser {
                         axesAggregated.append((
                             byte: field.bitOffset / 8,
                             width: field.bitSize / 8,
-                            signed: saneRange && field.logicalMin < 0
+                            signed: saneRange && field.logicalMin < 0,
+                            usage: field.usage
                         ))
                     }
                 case 0x36, 0x37: // Slider, Dial - treat as trigger
@@ -290,7 +291,12 @@ enum HIDDescriptorParser {
                         triggers.append(field.bitOffset / 8)
                     }
                 case 0x39: // Hat switch
-                    if field.bitSize == 4 {
+                    // Accept 4-bit AND 8-bit hats: some pads declare the hat as
+                    // a full byte (0-7/8 in the low nibble, padding above). The
+                    // decoder's windowed read masks with 0x0F, so an 8-bit hat
+                    // decodes correctly from the same bitOffset; rejecting it
+                    // left the D-pad completely dead on those controllers.
+                    if field.bitSize == 4 || field.bitSize == 8 {
                         // Keep the absolute bit offset (hats often sit in
                         // the high nibble after 12 buttons) plus the
                         // declared logical minimum: many pads use 1..8
@@ -313,12 +319,14 @@ enum HIDDescriptorParser {
         let axisOffsets = sortedAxes.map(\.byte)
         let axisWidths = sortedAxes.map(\.width)
         let axisSigned = sortedAxes.map(\.signed)
+        let axisUsages = sortedAxes.map(\.usage)
 
         return ControllerProfile.GenericLayout(
             buttonBitOffsets: buttons.sorted(),
             axisByteOffsets: axisOffsets,
             axisByteWidths: axisWidths,
             axisIsSignedFlags: axisSigned,
+            axisUsages: axisUsages,
             hatByteOffset: hatBit.map { $0 / 8 },
             triggerByteOffsets: triggers.sorted(),
             reportSize: (totalBits + 7) / 8,

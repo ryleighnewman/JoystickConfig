@@ -165,7 +165,9 @@ final class CursorGuardService: ObservableObject {
         let confineTickHz: Double = effectiveConfineEnabled ? 60.0 : 1.0 / intervalSec
         let tickInterval = min(intervalSec, 1.0 / confineTickHz)
         let t = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+            // Main-thread timer, so run inline instead of a per-tick Task
+            // (allocation + hop up to 60x/second while confine is active).
+            MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(t, forMode: .common)
         loopTimer = t
@@ -208,8 +210,16 @@ final class CursorGuardService: ObservableObject {
 
     /// Cursor position in top-left-origin global coords (the system
     /// "Quartz" space).
+    /// The primary (zero-origin) screen defines the global coordinate space.
+    /// The Quartz top-left flip must reference ITS height, not NSScreen.main
+    /// (the focused screen), or on a multi-display setup the cursor warps to
+    /// the wrong Y.
+    private var primaryScreen: NSScreen? {
+        NSScreen.screens.first(where: { $0.frame.origin == .zero }) ?? NSScreen.screens.first
+    }
+
     private func cursorPositionTopLeft() -> CGPoint? {
-        guard let screen = NSScreen.main else { return nil }
+        guard let screen = primaryScreen else { return nil }
         let mouse = NSEvent.mouseLocation
         let flippedY = screen.frame.height - mouse.y
         return CGPoint(x: mouse.x, y: flippedY)
@@ -217,7 +227,7 @@ final class CursorGuardService: ObservableObject {
 
     /// Top-left-origin global rect of the given NSScreen.
     private func screenRectTopLeft(_ screen: NSScreen) -> CGRect {
-        guard let main = NSScreen.main else { return screen.frame }
+        guard let main = primaryScreen else { return screen.frame }
         let f = screen.frame
         let flippedY = main.frame.height - (f.origin.y + f.height)
         return CGRect(x: f.origin.x, y: flippedY, width: f.width, height: f.height)

@@ -195,6 +195,7 @@ struct ImportReviewSheet: View {
         // it so we can fire the scroll-and-flash hint after dismiss.
         let firstID = toCommit.first?.preset?.id
         _ = presetStore.commitImportPreviews(toCommit)
+        AccessibilityNotification.Announcement("Imported \(toCommit.count) preset\(toCommit.count == 1 ? "" : "s")").post()
         dismiss()
         // After the sheet dismisses, ask the sidebar to scroll the
         // newly imported preset into view and flash it green. Uses

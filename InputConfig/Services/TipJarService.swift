@@ -1,5 +1,6 @@
 import Foundation
 import StoreKit
+import Accessibility
 
 /// Apple-compliant tip jar built on StoreKit 2.
 ///
@@ -102,6 +103,7 @@ final class TipJarService: ObservableObject {
             await transaction.finish()
             incrementTipCount()
             await refreshActiveSubscription()
+            AccessibilityNotification.Announcement("Thank you for your support").post()
             return true
 
         case .userCancelled:

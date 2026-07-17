@@ -339,3 +339,44 @@ final class StatsService: ObservableObject, @unchecked Sendable {
         }
     }
 }
+
+extension StatsService.PersistentStats {
+    enum CodingKeys: String, CodingKey {
+        case firstLaunchAt, launchCount, totalConnectedTime, totalEngineRunningTime
+        case presetActivationCount, presetTimeByName, presetActivationCountByName
+        case totalButtonPresses, totalKeyPresses, totalMouseClicks, totalMidiEvents
+        case totalMouseMotionPixels, totalScrollTicks, totalTouchpadFingerEvents
+        case totalMacroExecutions, dailyConnectedSeconds, inputPressCounts
+        case controllerTimeByName, controllerConnectionCount
+    }
+
+    /// Lenient decode: each field falls back to its default when the key is
+    /// missing. The synthesized Decodable would throw keyNotFound on a
+    /// stats.json written by an older build that lacks a newer counter, and the
+    /// load path then resets the whole file - wiping all lifetime usage
+    /// telemetry. This keeps existing counters and defaults only the new ones.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var s = Self()
+        s.firstLaunchAt = try c.decodeIfPresent(Date.self, forKey: .firstLaunchAt) ?? s.firstLaunchAt
+        s.launchCount = try c.decodeIfPresent(Int.self, forKey: .launchCount) ?? s.launchCount
+        s.totalConnectedTime = try c.decodeIfPresent(TimeInterval.self, forKey: .totalConnectedTime) ?? s.totalConnectedTime
+        s.totalEngineRunningTime = try c.decodeIfPresent(TimeInterval.self, forKey: .totalEngineRunningTime) ?? s.totalEngineRunningTime
+        s.presetActivationCount = try c.decodeIfPresent(Int.self, forKey: .presetActivationCount) ?? s.presetActivationCount
+        s.presetTimeByName = try c.decodeIfPresent([String: TimeInterval].self, forKey: .presetTimeByName) ?? s.presetTimeByName
+        s.presetActivationCountByName = try c.decodeIfPresent([String: Int].self, forKey: .presetActivationCountByName) ?? s.presetActivationCountByName
+        s.totalButtonPresses = try c.decodeIfPresent(Int.self, forKey: .totalButtonPresses) ?? s.totalButtonPresses
+        s.totalKeyPresses = try c.decodeIfPresent(Int.self, forKey: .totalKeyPresses) ?? s.totalKeyPresses
+        s.totalMouseClicks = try c.decodeIfPresent(Int.self, forKey: .totalMouseClicks) ?? s.totalMouseClicks
+        s.totalMidiEvents = try c.decodeIfPresent(Int.self, forKey: .totalMidiEvents) ?? s.totalMidiEvents
+        s.totalMouseMotionPixels = try c.decodeIfPresent(Int.self, forKey: .totalMouseMotionPixels) ?? s.totalMouseMotionPixels
+        s.totalScrollTicks = try c.decodeIfPresent(Int.self, forKey: .totalScrollTicks) ?? s.totalScrollTicks
+        s.totalTouchpadFingerEvents = try c.decodeIfPresent(Int.self, forKey: .totalTouchpadFingerEvents) ?? s.totalTouchpadFingerEvents
+        s.totalMacroExecutions = try c.decodeIfPresent(Int.self, forKey: .totalMacroExecutions) ?? s.totalMacroExecutions
+        s.dailyConnectedSeconds = try c.decodeIfPresent([String: TimeInterval].self, forKey: .dailyConnectedSeconds) ?? s.dailyConnectedSeconds
+        s.inputPressCounts = try c.decodeIfPresent([String: Int].self, forKey: .inputPressCounts) ?? s.inputPressCounts
+        s.controllerTimeByName = try c.decodeIfPresent([String: TimeInterval].self, forKey: .controllerTimeByName) ?? s.controllerTimeByName
+        s.controllerConnectionCount = try c.decodeIfPresent([String: Int].self, forKey: .controllerConnectionCount) ?? s.controllerConnectionCount
+        self = s
+    }
+}

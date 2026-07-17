@@ -20,6 +20,7 @@ import QuartzCore
 struct VirtualControllerView<Trailing: View>: View {
     @EnvironmentObject var controllerService: GameControllerService
     @EnvironmentObject var mappingEngine: MappingEngine
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     let preset: Preset
     /// Asks the host to open the preset editor and scroll/pulse the row that
     /// matches this input. Fired when the user clicks any matching binding
@@ -137,6 +138,18 @@ struct VirtualControllerView<Trailing: View>: View {
                 visualizerPanelContent
             }
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .center)
+            // The fixed viewport box. Sits on the outer frame so it never scales
+            // with the zoom, giving the map a stationary container.
+            .background(visualizerBoxBackground)
+            // Hard-clip the map to that box. The zoom uses .scaleEffect, a
+            // render-only transform that does NOT shrink the view's layout
+            // footprint, so a zoomed-in map paints past its bounds and, without
+            // this, spills over the sidebar, header, and rows out onto the window.
+            // .clipped() is unreliable here: its rectangular clip can fail to mask
+            // a child .scaleEffect layer, which composites outside it. An explicit
+            // .clipShape forces a real mask layer the scaled content must render
+            // into, so every pixel stays inside the box.
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             .onReceive(Timer.publish(every: 1.0 / 30.0, on: .main,
                                      in: .common).autoconnect()) { _ in
                 guard info != nil else { return }
@@ -203,6 +216,8 @@ struct VirtualControllerView<Trailing: View>: View {
             integratedYaw   = max(-(.pi / 2), min(.pi / 2, integratedYaw))
             integratedRoll  = max(-(.pi / 2), min(.pi / 2, integratedRoll))
         }
+        .debugEditLayout($editMode)
+        .debugVizZoom($visualizerScale)
     }
 
     // MARK: - Header
@@ -359,14 +374,25 @@ struct VirtualControllerView<Trailing: View>: View {
         }
     }
 
+    @ViewBuilder
     private var statusDot: some View {
         let connected = controllerService.controllerDetails[slot] != nil
-        return Circle()
-            .fill(connected ? Color.green : Color.red.opacity(0.7))
-            .frame(width: 8, height: 8)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Controller connection")
-            .accessibilityValue(connected ? "Connected" : "Disconnected")
+        Group {
+            if differentiateWithoutColor {
+                // Shape carries the state when color alone is not enough:
+                // check for connected, x for disconnected.
+                Image(systemName: connected ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(connected ? Color.green : Color.red.opacity(0.7))
+            } else {
+                Circle()
+                    .fill(connected ? Color.green : Color.red.opacity(0.7))
+            }
+        }
+        .frame(width: 8, height: 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Controller connection")
+        .accessibilityValue(connected ? "Connected" : "Disconnected")
     }
 
     // MARK: - Layout
@@ -419,32 +445,6 @@ struct VirtualControllerView<Trailing: View>: View {
         controllerService.controllerDetails[slot]
     }
 
-    /// True iff THIS slot's joystick mapping has at least one binding
-    /// whose input matches one of the supplied events. Scoped to the
-    /// slot, not all joysticks, so the visualizer for slot 0 doesn't
-    /// light up controls that are actually bound in joystick #1.
-    /// Falls back to checking all joysticks only when the preset has
-    /// no per-slot joystick mapping for this slot index yet.
-    private func hasBinding(for events: [InputEvent]) -> Bool {
-        let keys = Set(events.map(\.serialized))
-        if slot < preset.joysticks.count {
-            // Slot-scoped: only this joystick's bindings count.
-            for binding in preset.joysticks[slot].bindings
-                where keys.contains(binding.input.serialized) {
-                return true
-            }
-            return false
-        }
-        // Slot doesn't have its own joystick mapping yet - allow any.
-        for joystick in preset.joysticks {
-            for binding in joystick.bindings
-                where keys.contains(binding.input.serialized) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// The effective input kind for the slot's visualizer. User-set
     /// `inputKind` on the JoystickMapping takes priority; .auto falls
     /// back to inferring from the binding-type majority.
@@ -474,25 +474,38 @@ struct VirtualControllerView<Trailing: View>: View {
     /// (TimelineView) and static (no controller) paths render the exact
     /// same thing.
     private var visualizerPanelContent: some View {
+        // ONLY the controller map scales and pans. The gradient/grid box used to
+        // live inside this scaleEffect, so the box itself grew with the zoom and,
+        // past ~1x, its edges scaled clean out of the visible frame - leaving the
+        // map with no stationary container and painting out over the sidebar and
+        // window. The box is now a FIXED backdrop applied on the outer frame (see
+        // body), so it stays put as a viewport and the zoomed map is clipped
+        // inside it. Nothing here changes the view's layout footprint, which is
+        // what lets that outer clip actually contain the scaled render.
         controllerLayout
             .padding(18)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(LinearGradient(
-                        colors: [Color.secondary.opacity(0.08),
-                                 Color.secondary.opacity(0.03)],
-                        startPoint: .top, endPoint: .bottom))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.secondary.opacity(0.18),
-                                    lineWidth: 0.5)
-                    )
-                    .overlay(gridOverlay)
-                    .allowsHitTesting(false)
-            )
             .scaleEffect(visualizerScale, anchor: .center)
             .offset(x: panOffset.width + dragInProgress.width,
                     y: panOffset.height + dragInProgress.height)
+    }
+
+    /// The stationary gradient + grid + border backdrop the visualizer map sits
+    /// inside. It is applied to the outer frame (not the scaled content), so it
+    /// never zooms: it is the fixed viewport that bounds the map. The grid reads
+    /// as stable workbench paper the controller scales and pans across.
+    private var visualizerBoxBackground: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(LinearGradient(
+                colors: [Color.secondary.opacity(0.08),
+                         Color.secondary.opacity(0.03)],
+                startPoint: .top, endPoint: .bottom))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.secondary.opacity(0.18),
+                            lineWidth: 0.5)
+            )
+            .overlay(gridOverlay)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -1255,10 +1268,6 @@ struct VirtualControllerView<Trailing: View>: View {
         UserDefaults.standard.set(encoded, forKey: layoutStorageKey)
     }
 
-    private func setInspector(label: String) {
-        openInspectorLabel = label
-    }
-
     /// Single face button with its own anchored popover.
     private func faceButton(label: String, index: Int, tint: Color) -> some View {
         inspectable(label: label, events: [.button(index)]) {
@@ -1868,7 +1877,13 @@ private struct TouchpadWidget: View {
     /// as an offscreen pass per view; ~130 of those per frame swamped
     /// the GPU).
     private var trailCanvas: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { context in
+        // Pause the 60 Hz clock when there is nothing to animate. With both
+        // trail buffers empty the Canvas was repainting an empty pad 60x/sec
+        // for the whole time a touchpad controller is connected. A finger-down
+        // appends to trailF0/trailF1 (@State), which re-runs body and resumes
+        // this same-identity timeline on the same render pass (no added latency).
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0,
+                                paused: trailF0.isEmpty && trailF1.isEmpty)) { context in
             Canvas { ctx, _ in
                 drawTrail(into: ctx, points: trailF0,
                           color: .mint, at: context.date)

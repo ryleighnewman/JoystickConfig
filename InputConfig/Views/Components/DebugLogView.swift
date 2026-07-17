@@ -68,6 +68,7 @@ struct DebugLogView: View {
                         .frame(width: 16)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Collapse log" : "Expand log")
 
                 Image(systemName: "terminal.fill")
                     .font(.caption)
@@ -112,6 +113,7 @@ struct DebugLogView: View {
                                     .foregroundStyle(.tertiary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Clear filter")
                         }
                     }
                     .padding(.horizontal, 6)
@@ -173,6 +175,7 @@ struct DebugLogView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Clear log")
+                .accessibilityLabel("Clear log")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

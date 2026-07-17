@@ -208,17 +208,14 @@ final class ExternalInputDeviceService: ObservableObject, @unchecked Sendable {
                           vendorName: "System", productName: "Mouse",
                           serialNumber: nil, bus: .unknown, locationID: 0)]
 
-        // Force Touch pressure rides the same Accessibility grant via
-        // NSEvent monitors (the global one covers presses while a game is
-        // frontmost; the local one covers our own window).
+        // Force Touch pressure is delivered only to the LOCAL monitor: macOS
+        // routes NSEventTypePressure through the frontmost app's responder
+        // chain, so a global monitor never receives it (there is no public API
+        // that reports another app's trackpad force). Force Touch bindings
+        // therefore fire only while InputConfig's own window is frontmost; a
+        // global-monitor registration here would be silently dead, so we don't
+        // install one and don't imply the feature works over other apps.
         ensurePressureMetricsMonitor()
-        if pressureGlobalMonitor == nil {
-            pressureGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.pressure]
-            ) { [weak self] ev in
-                self?.handlePressureNSEvent(ev)
-            }
-        }
     }
 
     /// Install the LOCAL pressure monitor on demand. Separate from the
@@ -264,9 +261,8 @@ final class ExternalInputDeviceService: ObservableObject, @unchecked Sendable {
         #if canImport(AppKit)
         if let m = keyboardGlobalMonitor { NSEvent.removeMonitor(m); keyboardGlobalMonitor = nil }
         if let m = keyboardLocalMonitor { NSEvent.removeMonitor(m); keyboardLocalMonitor = nil }
-        // The global pressure monitor follows the engine lifecycle; the
-        // local one stays so in-window UI gauges keep working.
-        if let m = pressureGlobalMonitor { NSEvent.removeMonitor(m); pressureGlobalMonitor = nil }
+        // The local pressure monitor stays installed so in-window UI gauges
+        // keep working; there is no global pressure monitor to tear down.
         #endif
         devices = []
     }
@@ -314,7 +310,6 @@ final class ExternalInputDeviceService: ObservableObject, @unchecked Sendable {
 
     private var keyboardGlobalMonitor: Any?
     private var keyboardLocalMonitor: Any?
-    private var pressureGlobalMonitor: Any?
     private var pressureLocalMonitor: Any?
 
     /// Begin listening for Mac keyboard key presses so a `.extKey` binding

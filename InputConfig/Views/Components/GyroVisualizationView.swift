@@ -99,7 +99,9 @@ struct GyroVisualizationView: View {
             Controller3DSceneView(
                 pitchAngle: pitchAngle,
                 yawAngle: yawAngle,
-                rollAngle: rollAngle
+                rollAngle: rollAngle,
+                // Gyro rate magnitude above a small noise deadband = tilting.
+                isMoving: abs(gyroX) + abs(gyroY) + abs(gyroZ) > 0.03
             )
             .frame(width: silhouetteSize * 1.6, height: silhouetteSize * 1.2)
             .shadow(color: .teal.opacity(0.4), radius: 4)
@@ -228,6 +230,13 @@ struct Controller3DSceneView: NSViewRepresentable {
     let pitchAngle: Float
     let yawAngle: Float
     let rollAngle: Float
+    /// True while the controller is actually tilting. Continuous rendering is
+    /// only needed to present small per-frame deltas during motion; when the
+    /// controller is still there is nothing to present, so we drop to
+    /// on-demand rendering and let SceneKit hold the last frame. This stops the
+    /// SCNView's independent 30 fps CVDisplayLink from running forever whenever
+    /// a motion controller is merely connected.
+    var isMoving: Bool = true
 
     func makeNSView(context: Context) -> SCNView {
         let view = SCNView()
@@ -237,16 +246,22 @@ struct Controller3DSceneView: NSViewRepresentable {
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 30
-        // Force the SCNView to keep redrawing every frame instead of only
-        // when the scene graph changes. Without this, eulerAngle updates
-        // applied via updateNSView don't always get presented - SceneKit's
-        // internal change detection can miss small per-frame deltas.
+        // Start continuous so the very first frame is guaranteed to present;
+        // updateNSView (called immediately after, and on every angle change)
+        // then gates it to `isMoving`. isPlaying stays on so on-demand redraws
+        // still fire when the scene graph changes.
         view.rendersContinuously = true
         view.isPlaying = true
         return view
     }
 
     func updateNSView(_ nsView: SCNView, context: Context) {
+        // Only keep the render loop hot while the controller is moving. The
+        // first frame already presented (makeNSView started continuous), and
+        // any angle change re-runs this to present it; when still we hold the
+        // last frame, which is pixel-identical to the current always-rendered
+        // still frame.
+        nsView.rendersContinuously = isMoving
         guard let node = nsView.scene?.rootNode.childNode(withName: "controller",
                                                           recursively: true) else { return }
         // GCMotion convention: X = pitch, Y = yaw, Z = roll. SceneKit uses

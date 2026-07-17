@@ -7,6 +7,7 @@ import GameController
 /// ContentView below.
 extension Notification.Name {
     static let inputConfigShowStats              = Notification.Name("InputConfig.ShowStats")
+    static let inputConfigOpenSmartMaker         = Notification.Name("InputConfig.OpenSmartMaker")
     static let inputConfigToggleActivePreset     = Notification.Name("InputConfig.ToggleActive")
     static let inputConfigOpenTouchpadCalibration = Notification.Name("InputConfig.OpenTouchpadCal")
     static let inputConfigOpenMotionCalibration   = Notification.Name("InputConfig.OpenMotionCal")
@@ -283,6 +284,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .inputConfigShowStats)) { _ in
             showingStats = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .inputConfigOpenSmartMaker)) { _ in
+            showingSmartMaker = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .inputConfigToggleActivePreset)) { _ in
             // Toggle the sidebar-selected preset, if any.
             if let pid = selectedPresetId,
@@ -378,6 +382,20 @@ struct ContentView: View {
             for: GlobalHotKeyService.toggleNotification)) { _ in
             handleGlobalHotkeyToggle()
         }
+        .modifier(DebugAutomationHooks(
+            presetStore: presetStore,
+            selectedPresetId: $selectedPresetId,
+            editingPreset: $editingPreset,
+            showingSmartMaker: $showingSmartMaker,
+            showingStats: $showingStats,
+            showingSettingsSheet: $showingSettingsSheet,
+            showingMotion: $showingMotionCalibrationFromMenu,
+            showingTouchpad: $showingTouchpadCalibrationFromMenu,
+            presentedDemoKind: $presentedDemoKind,
+            onToggle: { togglePreset($0) }
+        ))
+        .debugFakeController(controllerService)
+        .debugCaptureSheets()
     }
 
     /// Fired by the global keyboard shortcut. If a preset is currently active,
@@ -418,6 +436,7 @@ struct ContentView: View {
     @State private var newGroupName: String = ""
     @State private var renamingGroup: PresetGroup?
     @State private var renameGroupName: String = ""
+    @FocusState private var groupNameFocused: Bool
     /// The group whose color popover is open (nil = none). Drives a per-row
     /// popover with tinted swatches + the macOS color picker.
     @State private var colorEditingGroup: PresetGroup?
@@ -807,6 +826,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Restore preset")
+            .accessibilityLabel("Restore preset")
             Button {
                 presetStore.permanentlyDelete(entry)
             } label: {
@@ -816,6 +836,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Permanently delete")
+            .accessibilityLabel("Permanently delete preset")
         }
         .padding(.vertical, 2)
     }
@@ -961,6 +982,7 @@ struct ContentView: View {
                 .font(.headline)
             TextField("Group name", text: $renameGroupName)
                 .textFieldStyle(.roundedBorder)
+                .focused($groupNameFocused)
             HStack {
                 Spacer()
                 Button("Cancel") {
@@ -981,6 +1003,10 @@ struct ContentView: View {
         }
         .padding(20)
         .frame(width: 360)
+        .onAppear {
+            // Async so the sheet's field is in the window before focusing.
+            DispatchQueue.main.async { groupNameFocused = true }
+        }
     }
 
     private func groupExpandedBinding(for group: PresetGroup) -> SwiftUI.Binding<Bool> {
@@ -1514,6 +1540,7 @@ struct ContentView: View {
         let isHighlighted: Bool
         let onTap: () -> Void
         @State private var hovering: Bool = false
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             // TimelineView gives us a continuous time stream so the
@@ -1522,11 +1549,15 @@ struct ContentView: View {
             // on a Bool only fires on the transition and doesn't
             // actually animate - SwiftUI sees no value change to
             // interpolate against, so the card just sat there.)
+            // Reduce Motion pauses the timeline and pins the pulse at
+            // fully highlighted instead of looping.
             TimelineView(.animation(minimumInterval: 1.0 / 30.0,
-                                    paused: !isHighlighted)) { context in
-                let pulse = isHighlighted
-                    ? (sin(context.date.timeIntervalSinceReferenceDate * 2.4) + 1) / 2
-                    : 0
+                                    paused: !isHighlighted || reduceMotion)) { context in
+                let pulse: Double = {
+                    guard isHighlighted else { return 0 }
+                    if reduceMotion { return 1.0 }
+                    return (sin(context.date.timeIntervalSinceReferenceDate * 2.4) + 1) / 2
+                }()
                 Button(action: onTap) {
                     cardLabel(pulse: pulse)
                 }
@@ -1562,6 +1593,7 @@ struct ContentView: View {
                 ? CGFloat(8.0 + 8.0 * pulse)
                 : 0
             let scale: CGFloat = {
+                if reduceMotion { return 1.0 }
                 if isHighlighted { return CGFloat(1.0 + 0.05 * pulse) }
                 if hovering { return 1.02 }
                 return 1.0
@@ -2958,6 +2990,7 @@ private struct LightSwatchButton: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -2970,7 +3003,7 @@ private struct LightSwatchButton: View {
                     )
                     .frame(width: 24, height: 24)
                     .shadow(color: color.opacity(isHovering ? 0.6 : 0.3), radius: isHovering ? 4 : 2)
-                    .scaleEffect(isHovering ? 1.15 : 1.0)
+                    .scaleEffect(!reduceMotion && isHovering ? 1.15 : 1.0)
                     .animation(.easeOut(duration: 0.15), value: isHovering)
                 Text(name)
                     .font(.system(size: 8))
@@ -3005,6 +3038,10 @@ struct PresetRowView: View {
     /// deselected, or another row is selected.
     @State private var descriptionExpanded: Bool = false
 
+    /// Active state is normally conveyed only by the green row tint;
+    /// with Differentiate Without Color on we add a glyph as well.
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+
     /// Whether the row should offer an expand toggle. We err on the side
     /// of showing it: any non-trivial tag (>= 16 chars, since sidebar
     /// width often clips around there) OR any notes content qualifies.
@@ -3031,6 +3068,12 @@ struct PresetRowView: View {
     @ViewBuilder
     private var mainRow: some View {
         HStack(spacing: 6) {
+            if preset.isActive && differentiateWithoutColor {
+                Image(systemName: "play.fill")
+                    .font(.caption2)
+                    .iconTint(.green)
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(preset.name)
                     .font(.body)
@@ -3071,6 +3114,9 @@ struct PresetRowView: View {
                     .help(descriptionExpanded
                           ? "Collapse description"
                           : "Show full description")
+                    .accessibilityLabel(descriptionExpanded
+                                        ? "Collapse description"
+                                        : "Show full description")
                     .popover(isPresented: $descriptionExpanded,
                              arrowEdge: .bottom) {
                         descriptionPopover
@@ -4139,240 +4185,8 @@ struct PresetDetailView: View {
 
     // MARK: - Light Bar
 
-    @State private var lightBarColor: Color = .blue
-    @State private var lightBarBrightness: Double = 2
-    @State private var lightBarApplyFlash = false
-
     private var hasLightCapableController: Bool {
         controllerService.controllerDetails.values.contains { $0.hasLight }
-    }
-
-    /// First controller slot that reports a light bar. Used as the target
-    /// for the inline color/brightness controls. Multi-controller setups
-    /// still apply only to one slot from here; richer per-controller control
-    /// continues to live in the sidebar status popover.
-    private var firstLightControllerIndex: Int? {
-        controllerService.controllerDetails
-            .filter { $0.value.hasLight }
-            .keys
-            .sorted()
-            .first
-    }
-
-    /// Compact vertical version of the light-bar section designed to sit
-    /// alongside the Live Visualizer instead of below it. Same controls,
-    /// stacked tightly.
-    @ViewBuilder
-    private var lightBarSidebar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "light.beacon.max.fill")
-                    .foregroundStyle(.pink)
-                Text("Light Bar")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if lightBarApplyFlash {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .transition(.opacity)
-                }
-            }
-
-            // Swatches in a 3-wide grid so the column stays narrow.
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                ForEach(lightBarPresets, id: \.name) { swatch in
-                    Button {
-                        lightBarColor = swatch.color
-                        applyLightBar()
-                    } label: {
-                        Circle()
-                            .fill(swatch.color)
-                            .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
-                            .frame(width: 22, height: 22)
-                    }
-                    .buttonStyle(.plain)
-                    .help(swatch.name)
-                }
-            }
-
-            HStack(spacing: 8) {
-                ColorPicker("", selection: $lightBarColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 26, height: 26)
-                Button("Apply") { applyLightBar() }
-                    .buttonStyle(.solidCompact)
-                    .controlSize(.small)
-            }
-
-            Picker("", selection: $lightBarBrightness) {
-                Text("Off").tag(0.0)
-                Text("Dim").tag(1.0)
-                Text("Bright").tag(2.0)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: lightBarBrightness) { _, newValue in
-                if let idx = firstLightControllerIndex {
-                    controllerService.setControllerBrightness(at: idx, brightness: UInt8(newValue))
-                }
-            }
-
-            Button {
-                toggleRGBCycle()
-            } label: {
-                let cycling = isRGBCycleActive
-                Label(cycling ? "Stop Cycle" : "RGB Cycle",
-                      systemImage: cycling ? "stop.circle.fill" : "rainbow")
-                    .font(.caption)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.solidSecondaryCompact)
-            .controlSize(.small)
-            .tint(isRGBCycleActive ? .red : .accentColor)
-
-            rgbSpeedSlider
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.secondary.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
-        )
-    }
-
-    @ViewBuilder
-    private var lightBarSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "light.beacon.max.fill")
-                    .foregroundStyle(.pink)
-                Text("Light Bar")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if lightBarApplyFlash {
-                    Label("Applied", systemImage: "checkmark.circle.fill")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.green)
-                        .transition(.opacity)
-                }
-            }
-
-            // Preset swatches
-            HStack(spacing: 8) {
-                ForEach(lightBarPresets, id: \.name) { swatch in
-                    Button {
-                        lightBarColor = swatch.color
-                        applyLightBar()
-                    } label: {
-                        Circle()
-                            .fill(swatch.color)
-                            .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
-                            .frame(width: 22, height: 22)
-                    }
-                    .buttonStyle(.plain)
-                    .help(swatch.name)
-                }
-                Spacer()
-            }
-
-            // Custom color row + brightness segmented control. Spacing is
-            // tuned for visual breathing room - the segmented control sits
-            // immediately to the right of Apply (separated by a divider)
-            // rather than being pushed against the far edge of the panel.
-            HStack(spacing: 12) {
-                Text("Custom")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ColorPicker("", selection: $lightBarColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 28, height: 28)
-                    .padding(.horizontal, 4)
-                Button("Apply") { applyLightBar() }
-                    .buttonStyle(.solidCompact)
-                    .controlSize(.small)
-
-                Divider()
-                    .frame(height: 18)
-                    .padding(.horizontal, 4)
-
-                Text("Brightness")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker("", selection: $lightBarBrightness) {
-                    Text("Off").tag(0.0)
-                    Text("Dim").tag(1.0)
-                    Text("Bright").tag(2.0)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 160)
-                .onChange(of: lightBarBrightness) { _, newValue in
-                    if let idx = firstLightControllerIndex {
-                        controllerService.setControllerBrightness(at: idx, brightness: UInt8(newValue))
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 10) {
-                let cycling = isRGBCycleActive
-                Button {
-                    toggleRGBCycle()
-                } label: {
-                    Label(cycling ? "Stop RGB Cycle" : "Start RGB Cycle",
-                          systemImage: cycling ? "stop.circle.fill" : "rainbow")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption)
-                }
-                .buttonStyle(.solidSecondaryCompact)
-                .controlSize(.small)
-                .tint(cycling ? .red : .accentColor)
-
-                if cycling {
-                    Text("Seamless rainbow - adjust the speed below")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-
-            rgbSpeedSlider
-        }
-    }
-
-    private var isRGBCycleActive: Bool {
-        guard let idx = firstLightControllerIndex else { return false }
-        return controllerService.rgbCycleActive[idx] == true
-    }
-
-    private func toggleRGBCycle() {
-        guard let idx = firstLightControllerIndex else { return }
-        controllerService.toggleRGBCycle(at: idx)
-    }
-
-    /// Shared RGB cycle speed slider, used by both light-bar panels. Bound
-    /// to the service's persisted `rgbCycleSpeed`, so the rainbow speed and
-    /// the controller-popover slider all stay in sync.
-    @ViewBuilder
-    private var rgbSpeedSlider: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Cycle Speed")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Image(systemName: "tortoise")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Slider(value: $controllerService.rgbCycleSpeed, in: 0.25...6.0)
-                Image(systemName: "hare")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-        }
     }
 
     private var lightBarPresets: [(name: String, color: Color)] {
@@ -4381,20 +4195,6 @@ struct PresetDetailView: View {
             ("Green", .green), ("Cyan", .cyan), ("Blue", .blue),
             ("Purple", .purple), ("Pink", .pink), ("White", .white)
         ]
-    }
-
-    private func applyLightBar() {
-        guard let idx = firstLightControllerIndex else { return }
-        let ns = NSColor(lightBarColor).usingColorSpace(.sRGB) ?? NSColor(lightBarColor)
-        let r = Float(ns.redComponent)
-        let g = Float(ns.greenComponent)
-        let b = Float(ns.blueComponent)
-        controllerService.setControllerLight(at: idx, red: r, green: g, blue: b)
-
-        withAnimation(.easeIn(duration: 0.15)) { lightBarApplyFlash = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            withAnimation(.easeOut(duration: 0.3)) { lightBarApplyFlash = false }
-        }
     }
 }
 
@@ -4922,3 +4722,260 @@ private struct QuickTipsPill: View {
         .accessibilityLabel("Tip: \(Self.tips[index])")
     }
 }
+
+// MARK: - Debug automation hooks (marketing / QA)
+
+/// DEBUG-only view modifier that lets the app be driven from the shell via
+/// DistributedNotificationCenter, so marketing captures and QA can navigate
+/// without clicking. Wrapped in `#if DEBUG` so none of it can ship in a
+/// Release build. Where a command needs a target preset, its name rides in
+/// the notification's `object` (distributed notifications carry a string
+/// object across processes).
+///
+/// Commands (post the name; pass the preset name as the object where noted):
+///   inputconfig.debug.welcome            show the welcome screen
+///   inputconfig.debug.select    <name>   select a preset (detail view)
+///   inputconfig.debug.edit      [name]   open the binding editor
+///   inputconfig.debug.activate  [name]   activate a preset (engine running)
+///   inputconfig.debug.deactivate         stop the active preset
+///   inputconfig.debug.sheet     <which>  smartmaker|stats|settings|motion|touchpad
+///   inputconfig.debug.demo      <kind>   open a feature demo by raw value
+///   inputconfig.debug.closesheets        dismiss any open sheet
+struct DebugAutomationHooks: ViewModifier {
+    let presetStore: PresetStore
+    @Binding var selectedPresetId: UUID?
+    @Binding var editingPreset: Preset?
+    @Binding var showingSmartMaker: Bool
+    @Binding var showingStats: Bool
+    @Binding var showingSettingsSheet: Bool
+    @Binding var showingMotion: Bool
+    @Binding var showingTouchpad: Bool
+    @Binding var presentedDemoKind: FeatureDemoKind?
+    let onToggle: (Preset) -> Void
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content
+            .onReceive(dnc("inputconfig.debug.welcome")) { _ in
+                editingPreset = nil
+                selectedPresetId = nil
+            }
+            .onReceive(dnc("inputconfig.debug.select")) { note in
+                if let p = preset(note) {
+                    editingPreset = nil
+                    selectedPresetId = p.id
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.edit")) { note in
+                if let p = preset(note) ?? selected() {
+                    selectedPresetId = p.id
+                    editingPreset = p
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.activate")) { note in
+                if let p = preset(note) ?? selected() {
+                    selectedPresetId = p.id
+                    if !p.isActive { onToggle(p) }
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.deactivate")) { _ in
+                if let active = presetStore.presets.first(where: { $0.isActive }) {
+                    onToggle(active)
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.sheet")) { note in
+                closeSheets()
+                editingPreset = nil
+                switch note.object as? String {
+                case "smartmaker": showingSmartMaker = true
+                case "stats": showingStats = true
+                case "settings": showingSettingsSheet = true
+                case "motion": showingMotion = true
+                case "touchpad": showingTouchpad = true
+                default: break
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.demo")) { note in
+                closeSheets()
+                if let raw = note.object as? String,
+                   let kind = FeatureDemoKind(rawValue: raw) {
+                    presentedDemoKind = kind
+                }
+            }
+            .onReceive(dnc("inputconfig.debug.closesheets")) { _ in
+                closeSheets()
+            }
+        #else
+        content
+        #endif
+    }
+
+    #if DEBUG
+    private func dnc(_ name: String) -> NotificationCenter.Publisher {
+        // DistributedNotificationCenter's publisher yields on an arbitrary
+        // queue; onReceive delivers on the main run loop, so state mutation
+        // here is safe.
+        DistributedNotificationCenter.default().publisher(for: Notification.Name(name))
+    }
+    private func preset(_ note: Notification) -> Preset? {
+        (note.object as? String).flatMap { n in
+            presetStore.presets.first(where: { $0.name == n })
+        }
+    }
+    private func selected() -> Preset? {
+        selectedPresetId.flatMap { id in presetStore.presets.first(where: { $0.id == id }) }
+    }
+    private func closeSheets() {
+        showingSmartMaker = false
+        showingStats = false
+        showingSettingsSheet = false
+        showingMotion = false
+        showingTouchpad = false
+        presentedDemoKind = nil
+    }
+    #endif
+}
+
+// MARK: - Debug marketing state (drives sub-views into capture-ready states)
+
+#if DEBUG
+/// A tiny shared, DEBUG-only observable that the marketing capture pipeline
+/// toggles via DistributedNotificationCenter to put deep sub-views (the
+/// binding editor's advanced options, the visualizer's edit-layout mode, the
+/// One-Stick Driving arena) into a screenshot-ready state without clicking.
+import Combine
+@MainActor
+final class DebugMarketing: ObservableObject {
+    static let shared = DebugMarketing()
+    @Published var expandOptions = false
+    @Published var editLayout = false
+    @Published var oneStick = false
+    @Published var fakeController = false
+    @Published var vizScale: Double?
+    private init() {
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(forName: .init("inputconfig.debug.fakecontroller"), object: nil, queue: .main) { [weak self] _ in
+            self?.fakeController.toggle()
+        }
+        dnc.addObserver(forName: .init("inputconfig.debug.zoom"), object: nil, queue: .main) { [weak self] note in
+            if let v = (note.object as? String).flatMap(Double.init) { self?.vizScale = v }
+        }
+        dnc.addObserver(forName: .init("inputconfig.debug.expandOptions"), object: nil, queue: .main) { [weak self] _ in
+            self?.expandOptions.toggle()
+        }
+        dnc.addObserver(forName: .init("inputconfig.debug.editLayout"), object: nil, queue: .main) { [weak self] _ in
+            self?.editLayout.toggle()
+        }
+        dnc.addObserver(forName: .init("inputconfig.debug.oneStick"), object: nil, queue: .main) { [weak self] _ in
+            self?.oneStick.toggle()
+        }
+    }
+}
+#endif
+
+extension View {
+    /// DEBUG-only: expands this binding row's advanced options when the
+    /// marketing pipeline toggles DebugMarketing.expandOptions. No-op in Release.
+    @ViewBuilder func debugExpandOptions(_ showAdvanced: Binding<Bool>) -> some View {
+        #if DEBUG
+        onReceive(DebugMarketing.shared.$expandOptions) { if $0 { showAdvanced.wrappedValue = true } }
+        #else
+        self
+        #endif
+    }
+
+    /// DEBUG-only: engages the visualizer's Edit Layout mode on toggle.
+    @ViewBuilder func debugEditLayout(_ editMode: Binding<Bool>) -> some View {
+        #if DEBUG
+        onReceive(DebugMarketing.shared.$editLayout) { editMode.wrappedValue = $0 }
+        #else
+        self
+        #endif
+    }
+
+    /// DEBUG-only: expands and enables the One-Stick Driving section + arena.
+    @ViewBuilder func debugOneStick(expanded: Binding<Bool>, enable: Binding<Bool>) -> some View {
+        #if DEBUG
+        onReceive(DebugMarketing.shared.$oneStick) {
+            if $0 { expanded.wrappedValue = true; enable.wrappedValue = true }
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// DEBUG-only: injects / removes the two synthetic marketing controllers so
+    /// captures show a populated sidebar and visualizer with no hardware.
+    @ViewBuilder func debugFakeController(_ service: GameControllerService) -> some View {
+        #if DEBUG
+        onReceive(DebugMarketing.shared.$fakeController) { service.setMarketingFakeControllers($0) }
+        #else
+        self
+        #endif
+    }
+
+    /// DEBUG-only: sets the live visualizer's zoom for marketing captures.
+    @ViewBuilder func debugVizZoom(_ scale: Binding<Double>) -> some View {
+        #if DEBUG
+        onReceive(DebugMarketing.shared.$vizScale) { if let v = $0 { scale.wrappedValue = v } }
+        #else
+        self
+        #endif
+    }
+
+    /// DEBUG-only: presents the deadzone-calibration and one-stick-driving
+    /// views as standalone sheets for marketing capture. No-op in Release.
+    @ViewBuilder func debugCaptureSheets() -> some View {
+        #if DEBUG
+        modifier(DebugCaptureSheets())
+        #else
+        self
+        #endif
+    }
+}
+
+#if DEBUG
+/// DEBUG-only: drives the deadzone calibrator (joystick axis 0, trigger axis 4)
+/// and the One-Stick Driving arena into standalone sheets via distributed
+/// notifications, so marketing captures don't depend on fragile clicks.
+///   inputconfig.debug.deadzone <axisIndex>   0/2 = stick, 4/5 = trigger
+///   inputconfig.debug.drive                  one-stick driving arena
+struct DebugCaptureSheets: ViewModifier {
+    @State private var deadzoneAxis: Int?
+    @State private var dz: Double = 0.18
+    @State private var odz: Double = 0.9
+    @State private var showDrive = false
+    @State private var driveCfg: DriveConfig? = {
+        var c = DriveConfig(); c.enabled = true; return c
+    }()
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: Binding(get: { deadzoneAxis != nil },
+                                        set: { if !$0 { deadzoneAxis = nil } })) {
+                if let ax = deadzoneAxis {
+                    DeadzoneCalibrationView(axisIndex: ax, deadzone: $dz, outerDeadzone: $odz,
+                                            isInverted: false, onClose: { deadzoneAxis = nil })
+                        .padding(24)
+                        .frame(minWidth: 560, minHeight: 640)
+                        .glassBackground()
+                }
+            }
+            .sheet(isPresented: $showDrive) {
+                ScrollView { DriveModeSection(driveConfig: $driveCfg).padding(28) }
+                    .frame(minWidth: 760, minHeight: 720)
+                    // Marketing capture only: suppress the macOS keyboard focus
+                    // ring the sheet auto-draws on the disclosure control, which
+                    // showed up as a stray bordered box over the section title.
+                    .focusEffectDisabled()
+                    .glassBackground()
+            }
+            .onReceive(DistributedNotificationCenter.default().publisher(for: .init("inputconfig.debug.deadzone"))) { note in
+                deadzoneAxis = (note.object as? String).flatMap { Int($0) } ?? 0
+            }
+            .onReceive(DistributedNotificationCenter.default().publisher(for: .init("inputconfig.debug.drive"))) { _ in
+                showDrive = true
+            }
+    }
+}
+#endif

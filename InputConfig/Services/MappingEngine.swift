@@ -70,6 +70,9 @@ class MappingEngine: ObservableObject {
     private var macrosInFlight: Set<String> = []
     // Cache of serialized input keys to avoid repeated string allocations at 120Hz
     private var serializedKeyCache: [UUID: String] = [:]
+    /// Cache for the toggle/turbo/macro bind key ("slot:uuid") so a preset with
+    /// those bindings doesn't rebuild binding.id.uuidString every 120 Hz frame.
+    private var bindKeyCache: [UUID: String] = [:]
 
     /// Monotonically increasing counter bumped on every start()/stop().
     /// Background blocks (macros, turbo release) capture this at schedule
@@ -295,6 +298,7 @@ class MappingEngine: ObservableObject {
         turboTimestamps.removeAll()
         macrosInFlight.removeAll()
         serializedKeyCache.removeAll()
+        bindKeyCache.removeAll()
         debugLog.removeAll()
         pendingLog.removeAll()
         debugLineCount = 0
@@ -467,7 +471,10 @@ class MappingEngine: ObservableObject {
         let pollInterval: TimeInterval = 1.0 / Double(pollHz)
         currentPollHz = pollHz
         let t = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            // Fires on RunLoop.main (main thread = main actor). Run inline
+            // rather than spawning a Task per tick (an allocation + actor hop
+            // up to 240x/second) for identical behavior.
+            MainActor.assumeIsolated {
                 self?.pollControllers()
             }
         }
@@ -559,6 +566,7 @@ class MappingEngine: ObservableObject {
         turboTimestamps.removeAll()
         macrosInFlight.removeAll()
         serializedKeyCache.removeAll()
+        bindKeyCache.removeAll()
         externalEventSubscription?.cancel()
         externalEventSubscription = nil
         ExternalInputDeviceService.shared.stopMonitoring()
@@ -747,17 +755,31 @@ class MappingEngine: ObservableObject {
                 // the same input. Only the toggle / turbo / macro paths read
                 // it, so build it lazily: a plain binding must not allocate
                 // binding.id.uuidString on every 120 Hz poll frame.
-                let bindKey: String = (binding.toggleMode == true
+                let bindKey: String
+                if binding.toggleMode == true
                     || binding.turboEnabled == true
-                    || binding.macroSteps != nil)
-                    ? "\(joystickIndex):\(binding.id.uuidString)"
-                    : ""
+                    || binding.macroSteps != nil {
+                    if let cached = bindKeyCache[binding.id] {
+                        bindKey = cached
+                    } else {
+                        let k = "\(joystickIndex):\(binding.id.uuidString)"
+                        bindKeyCache[binding.id] = k
+                        bindKey = k
+                    }
+                } else {
+                    bindKey = ""
+                }
 
                 if isActive {
                     scratchActiveSet.insert(inputKey)
                 }
 
                 let wasActive = activeStates[joystickIndex]?.contains(inputKey) ?? false
+                // Axis-driven MIDI CC / pitch-bend must never fire on the press
+                // or release edge - that spikes the value for one frame and
+                // slams it on release. fireOutputs suppresses those two output
+                // types when this is true; the continuous path handles them.
+                let inputIsAxis = binding.input.type == .axis
 
                 if binding.toggleMode == true {
                     // Toggle mode: press toggles on/off
@@ -765,7 +787,7 @@ class MappingEngine: ObservableObject {
                         let isToggledOn = toggleStates[bindKey] ?? false
                         if isToggledOn {
                             if debugEnabled { log("TOGGLE OFF: \(inputKey)", joystick: joystickIndex) }
-                            fireOutputs(binding.outputs, press: false)
+                            fireOutputs(binding.outputs, press: false, inputIsAxis: inputIsAxis)
                             toggleStates[bindKey] = false
                         } else {
                             if debugEnabled {
@@ -784,7 +806,7 @@ class MappingEngine: ObservableObject {
                                                  repeatCount: binding.repeatCount ?? 1)
                                 }
                             } else {
-                                fireOutputs(binding.outputs, press: true)
+                                fireOutputs(binding.outputs, press: true, inputIsAxis: inputIsAxis)
                             }
                             toggleStates[bindKey] = true
                             fireFeedback(for: binding, joystickIndex: joystickIndex)
@@ -811,7 +833,7 @@ class MappingEngine: ObservableObject {
                         let interval = 1.0 / Double(rate)
                         let lastFire = turboTimestamps[bindKey] ?? -.infinity
                         if nowMonotonic - lastFire >= interval {
-                            fireOutputs(binding.outputs, press: true)
+                            fireOutputs(binding.outputs, press: true, inputIsAxis: inputIsAxis)
                             // Schedule release after ~40% of the interval.
                             // Capture engineGeneration so a stop() between
                             // press and release skips the release fire on
@@ -819,9 +841,10 @@ class MappingEngine: ObservableObject {
                             // the user deactivates the preset mid-turbo).
                             let gen = engineGeneration
                             let outputs = binding.outputs
+                            let axisFlag = inputIsAxis
                             DispatchQueue.main.asyncAfter(deadline: .now() + interval * 0.4) { [weak self] in
                                 guard let self = self, self.engineGeneration == gen else { return }
-                                self.fireOutputs(outputs, press: false)
+                                self.fireOutputs(outputs, press: false, inputIsAxis: axisFlag)
                             }
                             turboTimestamps[bindKey] = nowMonotonic
                         }
@@ -830,7 +853,7 @@ class MappingEngine: ObservableObject {
                         }
                     } else if wasActive {
                         log("TURBO END: \(inputKey)", joystick: joystickIndex)
-                        fireOutputs(binding.outputs, press: false)
+                        fireOutputs(binding.outputs, press: false, inputIsAxis: inputIsAxis)
                         turboTimestamps.removeValue(forKey: bindKey)
                     }
                 } else {
@@ -865,7 +888,7 @@ class MappingEngine: ObservableObject {
                         } else if (binding.repeatCount ?? 1) > 1 {
                             fireWithRepeat(binding)
                         } else {
-                            fireOutputs(binding.outputs, press: true)
+                            fireOutputs(binding.outputs, press: true, inputIsAxis: inputIsAxis)
                         }
                         fireFeedback(for: binding, joystickIndex: joystickIndex)
                     } else if isActive, usesDeferred,
@@ -877,13 +900,13 @@ class MappingEngine: ObservableObject {
                         // action. It stays pressed until the input releases.
                         holdFired.insert(bindKey)
                         if debugEnabled { log("HOLD: \(inputKey)", joystick: joystickIndex) }
-                        fireOutputs(hold, press: true)
+                        fireOutputs(hold, press: true, inputIsAxis: inputIsAxis)
                     } else if !isActive && wasActive {
                         if debugEnabled { log("RELEASE: \(inputKey)", joystick: joystickIndex) }
                         if usesDeferred {
                             handleDeferredRelease(binding, bindKey: bindKey, now: nowMonotonic)
                         } else if binding.macroSteps == nil && (binding.repeatCount ?? 1) <= 1 {
-                            fireOutputs(binding.outputs, press: false)
+                            fireOutputs(binding.outputs, press: false, inputIsAxis: inputIsAxis)
                         }
                         // Stop-on-release: letting go asks the running chain
                         // to halt at its next press hop and release held steps.
@@ -938,10 +961,15 @@ class MappingEngine: ObservableObject {
             // fractional remainder into the next frame so slow motion is smooth.
             let totalX = pendingMouseDeltaX + mouseCarryX
             let totalY = pendingMouseDeltaY + mouseCarryY
-            let wholeX = Int(totalX)
-            let wholeY = Int(totalY)
-            mouseCarryX = totalX - Float(wholeX)
-            mouseCarryY = totalY - Float(wholeY)
+            // Clamp before Int(): a malformed / imported preset with an absurd
+            // speed could push the accumulator past Int range (a hard trap) or
+            // to NaN. Normal deltas are a few pixels, far below this budget.
+            let clampedX = totalX.isFinite ? max(-100_000, min(100_000, totalX)) : 0
+            let clampedY = totalY.isFinite ? max(-100_000, min(100_000, totalY)) : 0
+            let wholeX = Int(clampedX)
+            let wholeY = Int(clampedY)
+            mouseCarryX = clampedX - Float(wholeX)
+            mouseCarryY = clampedY - Float(wholeY)
             if wholeX != 0 || wholeY != 0 {
                 InputSimulator.shared.moveMouse(deltaX: wholeX, deltaY: wholeY)
                 StatsService.shared.recordMouseMotion(pixels: abs(wholeX) + abs(wholeY))
@@ -1257,7 +1285,7 @@ class MappingEngine: ObservableObject {
 
     // MARK: - Output Firing
 
-    private func fireOutputs(_ outputs: [OutputAction], press: Bool) {
+    private func fireOutputs(_ outputs: [OutputAction], press: Bool, inputIsAxis: Bool = false) {
         // App actions run even while outputs are paused; otherwise a
         // controller-bound Pause / Resume binding could pause the engine and
         // never resume it. Hopped to main async because activating a preset
@@ -1332,16 +1360,23 @@ class MappingEngine: ObservableObject {
                 }
 
             case .midiCC:
+                // Axis-driven CC is continuous: fireContinuousOutputs sends the
+                // smoothly-scaled value every active frame. Firing on the edge
+                // for an axis would spike the CC to the fixed value (127) for
+                // one frame on every deadzone entry and slam it to 0 on
+                // release, the same reason .mouseMotion/.mouseWheel break above.
+                // Buttons still fire the configured value on press, 0 on release.
+                if inputIsAxis { break }
                 let cc = output.midiCCNumber ?? 1
                 let ch = output.midiChannel ?? 1
-                // Buttons fire the configured value on press, 0 on release.
-                // Axes are handled by fireContinuousOutputs for smooth values.
                 let value = press ? (output.midiCCValue ?? 127) : 0
                 MIDIService.shared.sendCC(controller: cc, value: value, channel: ch)
 
             case .midiPitchBend:
+                // Same as .midiCC: axes ride the continuous path; only buttons
+                // snap to full bend on press and recenter on release.
+                if inputIsAxis { break }
                 let ch = output.midiChannel ?? 1
-                // Buttons snap to full bend on press, recenter on release.
                 let value = press ? 16383 : 8192
                 MIDIService.shared.sendPitchBend(value: value, channel: ch)
 
@@ -1719,7 +1754,10 @@ class MappingEngine: ObservableObject {
 
                 // Same NaN guard as the mouse-motion path above.
                 let rawScroll = Float(speed) * magnitude
-                let scaledSpeed = rawScroll.isFinite ? Int32(rawScroll) : 0
+                // Clamp before Int32(): an absurd imported scroll speed would
+                // otherwise trap even though isFinite is true.
+                let scaledSpeed = rawScroll.isFinite
+                    ? Int32(max(-1_000_000, min(1_000_000, rawScroll))) : 0
                 switch (axis, dir) {
                 case (.horizontal, .positive): pendingScrollDeltaX += scaledSpeed
                 case (.horizontal, .negative): pendingScrollDeltaX -= scaledSpeed
@@ -1846,7 +1884,11 @@ final class DriveModeProcessor {
         // at one end (no center, no backward): map its whole range to forward.
         let fwd: Float, back: Float
         if cfg.throttleIsTrigger {
-            fwd = max(0, deadzoned((y + 1) / 2, dz))   // rest(-1)->0, full(+1)->1
+            // Trigger axes normalize to 0...1 resting at 0 everywhere in this
+            // app (GC buttonInput.value, HID byte/255, Steam byte/255), so use
+            // the value directly. The old (y+1)/2 remap assumed a -1...1 trigger
+            // and left the accelerator held at ~43% with the trigger released.
+            fwd = max(0, deadzoned(y, dz))
             back = 0
         } else {
             fwd = max(0, deadzoned(y, dz))

@@ -185,12 +185,34 @@ struct MenuIcon: View {
 struct VisualEffectBackground: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+    /// Optional solid tint laid over the vibrancy. The behind-window blur can
+    /// read a touch too transparent on a busy desktop; a small tint (7% of the
+    /// window background color) firms the surface up without going opaque.
+    /// 0 = pure vibrancy (the default for sheets/secondary windows).
+    var tintOpacity: Double = 0
+
+    private static let tintViewID = NSUserInterfaceItemIdentifier("VEBTint")
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = blendingMode
         view.state = .followsWindowActiveState
+        if tintOpacity > 0 {
+            let tint = NSView()
+            tint.identifier = Self.tintViewID
+            tint.wantsLayer = true
+            tint.layer?.backgroundColor = NSColor.windowBackgroundColor
+                .withAlphaComponent(tintOpacity).cgColor
+            tint.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(tint)
+            NSLayoutConstraint.activate([
+                tint.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                tint.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                tint.topAnchor.constraint(equalTo: view.topAnchor),
+                tint.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            ])
+        }
         // Once the view is in a window, drop the window's opacity so the
         // behind-window blur samples the desktop rather than a solid fill.
         DispatchQueue.main.async { [weak view] in
@@ -205,6 +227,15 @@ struct VisualEffectBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.blendingMode = blendingMode
+        // Re-resolve the tint against the current appearance so it tracks
+        // light/dark switches (a stored CGColor would not).
+        if tintOpacity > 0,
+           let tint = nsView.subviews.first(where: { $0.identifier == Self.tintViewID }) {
+            nsView.effectiveAppearance.performAsCurrentDrawingAppearance {
+                tint.layer?.backgroundColor = NSColor.windowBackgroundColor
+                    .withAlphaComponent(tintOpacity).cgColor
+            }
+        }
         // updateNSView runs after the view is mounted, so the window now
         // exists. makeNSView's early attempt saw a nil window, which is why
         // the translucency never took. Reassert it here.
@@ -220,9 +251,31 @@ struct VisualEffectBackground: NSViewRepresentable {
 extension View {
     /// Presents this sheet over the same behind-window frosted glass as the
     /// main window, so every sheet shares one consistent translucency. Apply
-    /// to the content inside a `.sheet { }` closure.
+    /// to the content inside a `.sheet { }` closure. Also carries the
+    /// Reduce Motion gate so every sheet honors it without per-sheet wiring.
     func glassBackground() -> some View {
         presentationBackground { VisualEffectBackground().ignoresSafeArea() }
+            .reduceMotionFriendly()
+    }
+
+    /// System accessibility: when the user enables Reduce Motion, strip the
+    /// animation out of every transaction that flows through this subtree, so
+    /// state changes apply instantly instead of sliding/scaling/springing.
+    /// Apply once at each root (window content, sheets, the menu bar popover).
+    /// TimelineView-driven loops don't go through transactions and are gated
+    /// individually at their call sites.
+    func reduceMotionFriendly() -> some View {
+        modifier(ReduceMotionGate())
+    }
+}
+
+private struct ReduceMotionGate: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.transaction { t in
+            if reduceMotion { t.animation = nil }
+        }
     }
 }
 
@@ -233,6 +286,12 @@ extension View {
 // and colored icons that always carry a little transparency (never a flat
 // solid block). Reference implementations were ported from YapToText's
 // DesignSystem.swift rather than reinvented.
+
+extension Color {
+    /// The muted record/stop red shared with YapToText's menu bar (its
+    /// `yapRecord`), so the Stop pill reads the same, not a harsh system red.
+    static let icStop = Color(red: 0.80, green: 0.31, blue: 0.33)
+}
 
 /// One spacing scale for the whole app.
 enum Space {
@@ -273,31 +332,16 @@ extension View {
     /// (`.glassEffect`), tinted and interactive as requested. On macOS 14-25
     /// (the App Store deployment floor) it falls back to a tinted material +
     /// hairline stroke with identical layout.
-    @ViewBuilder
+    ///
+    /// Accessibility: when the user enables Reduce Transparency, every glass
+    /// surface renders as an OPAQUE window-background fill instead (system
+    /// materials partially self-adapt, but the tint washes and the macOS 26
+    /// glass path are guaranteed here). When Increase Contrast is on, the
+    /// hairline stroke doubles in weight and opacity.
     func liquidGlass<S: Shape>(in shape: S,
                                tint: Color? = nil,
                                interactive: Bool = false) -> some View {
-        if #available(macOS 26.0, *) {
-            // Built in an inline closure so these imperative statements aren't
-            // parsed as view content by the @ViewBuilder body (a bare var/if
-            // here crashes swift-frontend in Release batch mode).
-            let glass: Glass = {
-                var g: Glass = .regular
-                if let tint { g = g.tint(tint) }
-                if interactive { g = g.interactive() }
-                return g
-            }()
-            self.glassEffect(glass, in: shape)
-        } else {
-            self
-                .background(
-                    shape.fill(.thinMaterial)
-                        // Tint wash so a tinted pill (Stop, hero CTA) keeps
-                        // its color; untinted passes Color.clear -> no-op.
-                        .overlay(shape.fill((tint ?? Color.clear).opacity(0.35)))
-                )
-                .overlay(shape.stroke((tint ?? .primary).opacity(0.12), lineWidth: 0.5))
-        }
+        modifier(LiquidGlassModifier(shape: shape, tint: tint, interactive: interactive))
     }
 
     /// THE single flat inner-surface style: a quiet recess (NOT glass) for
@@ -305,11 +349,7 @@ extension View {
     /// Glass-inside-glass double-frosts and reads darker; the card is the
     /// glass, everything nested is a recess so every box reads the same.
     func innerWell(radius: CGFloat = Metrics.innerRadius) -> some View {
-        self
-            .background(Color.secondary.opacity(0.06),
-                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5))
+        modifier(InnerWellModifier(radius: radius))
     }
 
     /// Shared hover affordance for custom `.plain` controls: a soft fill that
@@ -320,6 +360,72 @@ extension View {
                 .fill(Color.primary.opacity(hovering ? 0.06 : 0))
         )
     }
+}
+
+/// Environment-aware body for `liquidGlass(in:tint:interactive:)`.
+/// Honors Reduce Transparency (opaque fill, no glass) and Increase
+/// Contrast (heavier stroke) system accessibility settings.
+private struct LiquidGlassModifier<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var strokeOpacity: Double { contrast == .increased ? 0.5 : 0.12 }
+    private var strokeWidth: CGFloat { contrast == .increased ? 1.0 : 0.5 }
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+                .background(
+                    shape.fill(Color(nsColor: .windowBackgroundColor))
+                        .overlay(shape.fill((tint ?? Color.clear).opacity(0.25)))
+                )
+                .overlay(shape.stroke((tint ?? .primary).opacity(strokeOpacity),
+                                      lineWidth: strokeWidth))
+        } else if #available(macOS 26.0, *) {
+            // Built in an inline closure so these imperative statements aren't
+            // parsed as view content by the @ViewBuilder body (a bare var/if
+            // here crashes swift-frontend in Release batch mode).
+            let glass: Glass = {
+                var g: Glass = .regular
+                if let tint { g = g.tint(tint) }
+                if interactive { g = g.interactive() }
+                return g
+            }()
+            content.glassEffect(glass, in: shape)
+        } else {
+            content
+                .background(
+                    shape.fill(.thinMaterial)
+                        // Tint wash so a tinted pill (Stop, hero CTA) keeps
+                        // its color; untinted passes Color.clear -> no-op.
+                        .overlay(shape.fill((tint ?? Color.clear).opacity(0.35)))
+                )
+                .overlay(shape.stroke((tint ?? .primary).opacity(strokeOpacity),
+                                      lineWidth: strokeWidth))
+        }
+    }
+}
+
+/// Environment-aware body for `innerWell(radius:)`. Solid fills already
+/// survive Reduce Transparency; Increase Contrast doubles the border.
+private struct InnerWellModifier: ViewModifier {
+    let radius: CGFloat
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        content
+            .background(Color.secondary.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .stroke(Color.secondary.opacity(contrast == .increased ? 0.4 : 0.12),
+                        lineWidth: contrast == .increased ? 1.0 : 0.5))
+    }
+}
+
+extension View {
 
     /// The canonical scroll-edge treatment: fades content to transparent under
     /// the title band so it dissolves into the window vibrancy instead of
@@ -507,8 +613,12 @@ struct InputConfig: App {
                 .environmentObject(appState.controllerService)
                 .environmentObject(appState.mappingEngine)
                 .environmentObject(appState.eightBitDoDetector)
-                .background(VisualEffectBackground().ignoresSafeArea())
+                .background(VisualEffectBackground(tintOpacity: 0.07).ignoresSafeArea())
+                .reduceMotionFriendly()
                 .onAppear {
+                    #if DEBUG
+                    _ = DebugMarketing.shared   // register marketing capture hooks
+                    #endif
                     MenuBarController.shared.install(
                         presetStore: appState.presetStore,
                         mappingEngine: appState.mappingEngine,

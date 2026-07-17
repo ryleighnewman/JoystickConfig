@@ -97,10 +97,12 @@ final class InputSimulator: @unchecked Sendable {
     /// because the characters bypass keycode translation entirely.
     func typeString(_ text: String) {
         guard !text.isEmpty else { return }
-        let units = Array(text.utf16)
-        var index = 0
-        while index < units.count {
-            let chunk = Array(units[index..<min(index + 20, units.count)])
+        // Chunk on grapheme (Character) boundaries so a surrogate pair (emoji,
+        // astral chars) or a combining sequence is never split across the
+        // 20-UTF-16-unit API limit, which would corrupt the character.
+        var chunk: [UInt16] = []
+        func flush() {
+            guard !chunk.isEmpty else { return }
             if let down = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: true) {
                 down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
                 taggedPost(down)
@@ -109,8 +111,22 @@ final class InputSimulator: @unchecked Sendable {
                 up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
                 taggedPost(up)
             }
-            index += 20
+            chunk.removeAll(keepingCapacity: true)
         }
+        for character in text {
+            let u = Array(String(character).utf16)
+            if !chunk.isEmpty && chunk.count + u.count > 20 { flush() }
+            if u.count > 20 {
+                // A single grapheme wider than the limit is pathological; post
+                // it on its own rather than dropping or splitting it.
+                flush()
+                chunk = u
+                flush()
+                continue
+            }
+            chunk.append(contentsOf: u)
+        }
+        flush()
     }
 
     private func modifierFlags(for hidCode: Int) -> CGEventFlags? {

@@ -349,8 +349,9 @@ struct CursorRegionsView: View {
         .onTapGesture {
             selectedRegionID = region.id
         }
+        .accessibilityLabel("Select region \(region.name)")
         .accessibilityValue(isPressed ? "Active" : "")
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Drawing

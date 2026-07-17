@@ -70,18 +70,35 @@ final class EightBitDoDetector: ObservableObject {
 
         let match: [String: Any] = [kIOHIDVendorIDKey as String: Self.vendorID]
         IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
+
+        // Event-driven detection: rescan the instant an 8BitDo device appears
+        // or disappears, instead of waking every 2 s forever to poll. The
+        // callback captures nothing (it reads its context arg), so it is a
+        // valid C function pointer. A slow safety poll below still covers the
+        // rare missed-event-during-mode-switch case the old comment worried
+        // about, so behavior is preserved while idle wakes drop ~7x.
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        let cb: IOHIDDeviceCallback = { context, _, _, _ in
+            guard let context = context else { return }
+            let me = Unmanaged<EightBitDoDetector>.fromOpaque(context).takeUnretainedValue()
+            Task { @MainActor in me.rescan() }
+        }
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, cb, ctx)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, cb, ctx)
+
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
-    /// Poll every 2 seconds for new/disconnected devices. IOHIDManager has
-    /// notification callbacks but a small periodic rescan is simpler and
-    /// avoids missed events during mode switches.
+    /// Detection is event-driven (match/removal callbacks in setupManager); this
+    /// slow 15 s poll is only a safety net for events IOHIDManager can miss
+    /// during 8BitDo mode switches. rescan() is idempotent and change-gated, so
+    /// the poll costs nothing between actual connect/disconnect changes.
     private func startPolling() {
         rescanTimer?.invalidate()
         rescan()
-        rescanTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.rescan() }
+        rescanTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rescan() }
         }
         if let timer = rescanTimer {
             RunLoop.main.add(timer, forMode: .common)

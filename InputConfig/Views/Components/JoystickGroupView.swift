@@ -65,11 +65,19 @@ struct JoystickGroupView: View {
                         // Serialize the input once and reuse it across the three
                         // highlight membership checks (was rebuilt 3x per row).
                         let inputKey = binding.input.serialized
-                        BindingRowView(
+                        // EquatableBindingRow instead of a bare BindingRowView:
+                        // this view re-runs on EVERY activeInputsPublished /
+                        // rawActiveInputs publish (up to 30 Hz while inputs
+                        // fire). BindingRowView's closure parameters defeat
+                        // SwiftUI's memberwise diffing, so every publish used
+                        // to re-run every heavy row body and re-measure the
+                        // whole sheet's layout - the main thread pinned at
+                        // 90%+ CPU whenever the editor was open with a preset
+                        // active. The Equatable shell compares value inputs
+                        // only, so unchanged rows skip body entirely.
+                        EquatableBindingRow(
                             binding: bindingAt(index),
-                            onScan: { onScanInput(index) },
-                            onRemove: { onRemoveBinding(index) },
-                            onDuplicate: { onDuplicateBinding(index) },
+                            snapshot: binding,
                             // Light up against raw controller state OR the
                             // engine's preset-aware set, whichever is firing.
                             // This works even with no preset active.
@@ -84,8 +92,12 @@ struct JoystickGroupView: View {
                             // BindingRowView doesn't need to subscribe to
                             // the service itself.
                             extraButtons: rowExtras,
-                            availablePresets: availablePresets
+                            availablePresets: availablePresets,
+                            onScan: { onScanInput(index) },
+                            onRemove: { onRemoveBinding(index) },
+                            onDuplicate: { onDuplicateBinding(index) }
                         )
+                        .equatable()
                         .id(binding.id)
                     }
                 }
@@ -131,6 +143,7 @@ struct JoystickGroupView: View {
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(joystick.isExpanded ? "Collapse joystick group" : "Expand joystick group")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -171,6 +184,7 @@ struct JoystickGroupView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Sort bindings")
+                .accessibilityLabel("Sort bindings")
 
                 if preSortSnapshot != nil {
                     Button {
@@ -185,6 +199,7 @@ struct JoystickGroupView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Undo sort")
+                    .accessibilityLabel("Undo sort")
                 }
 
                 Button {
@@ -219,6 +234,7 @@ struct JoystickGroupView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Remove this joystick group")
+                .accessibilityLabel("Remove joystick group")
             }
         }
         .padding(.horizontal, 10)
@@ -401,6 +417,67 @@ struct JoystickGroupView: View {
         SwiftUI.Binding(
             get: { joystick.bindings[index] },
             set: { joystick.bindings[index] = $0 }
+        )
+    }
+}
+
+/// Equatable shell around BindingRowView.
+///
+/// BindingRowView's init takes closures (onScan/onRemove/onDuplicate), which
+/// SwiftUI's memberwise diffing cannot compare, so it conservatively re-ran
+/// every row body whenever the parent re-evaluated. The parent observes three
+/// live services (engine highlight set, controller raw-active set, external
+/// input set) that publish up to 30 Hz while inputs fire, which multiplied
+/// into every heavy row body re-running and the whole editor sheet
+/// re-measuring layout on each publish: the main thread pinned at 90%+ CPU
+/// with an editor open while a preset was active.
+///
+/// EquatableView compares ONLY the value inputs below (the closures are
+/// deliberately excluded), so rows whose data and highlight state did not
+/// change skip body evaluation and keep their cached layout.
+private struct EquatableBindingRow: View, Equatable {
+    @SwiftUI.Binding var binding: BindingModel
+    /// Value snapshot of the model captured by the parent at render time.
+    /// The == below must compare snapshots, NOT `binding.wrappedValue`:
+    /// old and new views' bindings read the same underlying storage, so
+    /// wrappedValue would always compare equal and edits would never
+    /// re-render the row.
+    let snapshot: BindingModel
+    let isHighlighted: Bool
+    let displayNumber: Int
+    let isPulsing: Bool
+    let extraButtons: [GameControllerService.ExtraButton]
+    let availablePresets: [(id: UUID, name: String)]
+    let onScan: () -> Void
+    let onRemove: () -> Void
+    let onDuplicate: () -> Void
+
+    // nonisolated: Equatable's requirement is not actor-isolated, and the
+    // comparison touches only Sendable value-type stored properties (the
+    // @Binding and closures are deliberately not compared).
+    nonisolated static func == (l: Self, r: Self) -> Bool {
+        l.snapshot == r.snapshot
+            && l.isHighlighted == r.isHighlighted
+            && l.displayNumber == r.displayNumber
+            && l.isPulsing == r.isPulsing
+            && l.extraButtons == r.extraButtons
+            && l.availablePresets.count == r.availablePresets.count
+            && l.availablePresets.elementsEqual(r.availablePresets) {
+                $0.id == $1.id && $0.name == $1.name
+            }
+    }
+
+    var body: some View {
+        BindingRowView(
+            binding: $binding,
+            onScan: onScan,
+            onRemove: onRemove,
+            onDuplicate: onDuplicate,
+            isHighlighted: isHighlighted,
+            displayNumber: displayNumber,
+            isPulsing: isPulsing,
+            extraButtons: extraButtons,
+            availablePresets: availablePresets
         )
     }
 }

@@ -196,14 +196,18 @@ enum HIDReportDecoder {
         }
         guard bytes.count >= offset + layout.reportSize else { return }
 
-        let payload = Array(bytes.suffix(from: offset))
+        // Zero-copy: index into `bytes` at `offset` instead of allocating a
+        // fresh sub-array on every report. p(i) is exactly the old p(i)
+        // (payload was bytes[offset...] copied) and payloadCount == payloadCount.
+        let payloadCount = bytes.count - offset
+        @inline(__always) func p(_ i: Int) -> UInt8 { bytes[offset + i] }
 
         // Buttons
         for (logicalIndex, bitPos) in layout.buttonBitOffsets.enumerated() {
             let byteIndex = bitPos / 8
             let bitInByte = bitPos % 8
-            guard byteIndex < payload.count else { continue }
-            let pressed = (payload[byteIndex] >> bitInByte) & 0x01
+            guard byteIndex < payloadCount else { continue }
+            let pressed = (p(byteIndex) >> bitInByte) & 0x01
             state.buttons[logicalIndex] = pressed == 1 ? 1.0 : 0.0
         }
 
@@ -217,31 +221,44 @@ enum HIDReportDecoder {
                 ? layout.axisByteWidths[logicalIndex] : 1
             let isSigned = logicalIndex < layout.axisIsSignedFlags.count
                 ? layout.axisIsSignedFlags[logicalIndex] : false
-            guard byteOffset + width <= payload.count else { continue }
+            guard byteOffset + width <= payloadCount else { continue }
             let value: Float
             if width == 2 {
                 if isSigned {
-                    value = signedInt16(payload[byteOffset], payload[byteOffset + 1])
+                    value = signedInt16(p(byteOffset), p(byteOffset + 1))
                 } else {
-                    let raw = UInt16(payload[byteOffset]) | (UInt16(payload[byteOffset + 1]) << 8)
+                    let raw = UInt16(p(byteOffset)) | (UInt16(p(byteOffset + 1)) << 8)
                     value = max(-1.0, min(1.0, (Float(raw) - 32768.0) / 32767.0))
                 }
             } else {
                 if isSigned {
-                    let raw = Int8(bitPattern: payload[byteOffset])
+                    let raw = Int8(bitPattern: p(byteOffset))
                     value = max(-1.0, min(1.0, Float(raw) / 127.0))
                 } else {
-                    value = unsignedToSigned(payload[byteOffset])
+                    value = unsignedToSigned(p(byteOffset))
                 }
             }
-            // Logical axis 1 and 3 are Y axes; flip to match our convention.
-            state.axes[logicalIndex] = (logicalIndex == 1 || logicalIndex == 3) ? -value : value
+            // Y axes read inverted vs our up-positive convention, so flip them.
+            // Prefer the axis's declared HID usage (0x31 Y, 0x34 Ry) when the
+            // parser preserved it: a report that isn't ordered X,Y,Rx,Ry (e.g.
+            // a racing wheel laying out X, Z-throttle, Rz-brake) would otherwise
+            // negate whatever sits at position 1/3 and mangle non-Y axes. When
+            // usage is unknown, fall back to the positional heuristic, which is
+            // correct for conventional stick pads whose Y axes sit at 1 and 3.
+            let flip: Bool
+            if logicalIndex < layout.axisUsages.count {
+                let usage = layout.axisUsages[logicalIndex]
+                flip = (usage == 0x31 || usage == 0x34)
+            } else {
+                flip = (logicalIndex == 1 || logicalIndex == 3)
+            }
+            state.axes[logicalIndex] = flip ? -value : value
         }
 
         // Triggers
         for (i, byteOffset) in layout.triggerByteOffsets.enumerated() {
-            guard byteOffset < payload.count else { continue }
-            let value = Float(payload[byteOffset]) / 255.0
+            guard byteOffset < payloadCount else { continue }
+            let value = Float(p(byteOffset)) / 255.0
             state.axes[4 + i] = value
             state.buttons[6 + i] = value > 0.12 ? 1.0 : 0.0
         }
@@ -254,12 +271,12 @@ enum HIDReportDecoder {
         let hatBitOffset = layout.hatBitOffset ?? layout.hatByteOffset.map { $0 * 8 }
         if let hatBit = hatBitOffset {
             let hatByte = hatBit / 8
-            if hatByte < payload.count {
+            if hatByte < payloadCount {
                 // Read a 16-bit window so a 4-bit hat that straddles a byte
                 // boundary keeps its high bits (a single-byte shift would drop
                 // them and read a phantom held direction at rest).
-                let lo = UInt16(payload[hatByte])
-                let hi = hatByte + 1 < payload.count ? UInt16(payload[hatByte + 1]) : 0
+                let lo = UInt16(p(hatByte))
+                let hi = hatByte + 1 < payloadCount ? UInt16(p(hatByte + 1)) : 0
                 let raw = Int(((lo | (hi << 8)) >> (hatBit % 8)) & 0x0F)
                 let direction = raw - layout.hatLogicalMin
                 // Standard 8-direction encoding after normalization

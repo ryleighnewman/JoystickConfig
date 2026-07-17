@@ -143,7 +143,8 @@ final class HelpGuideWindowController {
             return
         }
         let hosting = NSHostingController(rootView: HelpGuideView()
-            .background(VisualEffectBackground().ignoresSafeArea()))
+            .background(VisualEffectBackground().ignoresSafeArea())
+            .reduceMotionFriendly())
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "InputConfig Help"
         newWindow.setContentSize(NSSize(width: 880, height: 580))

@@ -22,6 +22,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private weak var mappingEngine: MappingEngine?
     private weak var controllerService: GameControllerService?
     private var cancellables: Set<AnyCancellable> = []
+    /// Watches the menu bar's light/dark appearance so the running (green)
+    /// glyph can switch shades the way template menu bar icons auto-invert.
+    private var appearanceObservation: NSKeyValueObservation?
 
     private override init() {
         super.init()
@@ -38,11 +41,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = Self.makeMenuBarImage(running: mappingEngine.isRunning)
             button.action = #selector(togglePopover(_:))
             button.target = self
+            // Rebuild the glyph whenever the menu bar flips light/dark (a
+            // light wallpaper or Light Mode makes the bar light) so the green
+            // running-state icon deepens on a light bar the way template
+            // menu bar icons auto-invert.
+            appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+                self?.refreshMenuBarImage()
+            }
         }
         statusItem = item
+        refreshMenuBarImage()
 
         let pop = NSPopover()
         pop.behavior = .transient
@@ -60,8 +70,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         mappingEngine.$isRunning
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] running in
-                self?.statusItem?.button?.image = Self.makeMenuBarImage(running: running)
+            .sink { [weak self] _ in
+                self?.refreshMenuBarImage()
             }
             .store(in: &cancellables)
 
@@ -96,17 +106,55 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
                 }
             }
             .store(in: &cancellables)
+
+        #if DEBUG
+        // Marketing / QA: open (or close) the popover from the shell so its
+        // real translucent panel can be captured. DEBUG-only.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("inputconfig.debug.menubar"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.debugTogglePopover()
+        }
+        #endif
+    }
+
+    #if DEBUG
+    /// Open/close the menu bar popover anchored to the status item, without a
+    /// real click. Used by the marketing capture pipeline.
+    private func debugTogglePopover() {
+        guard let button = statusItem?.button else { return }
+        togglePopover(button)
+    }
+    #endif
+
+    /// Rebuild the status item glyph for the current running state AND the
+    /// current menu bar appearance. Call whenever either changes.
+    private func refreshMenuBarImage() {
+        guard let button = statusItem?.button else { return }
+        let running = mappingEngine?.isRunning ?? false
+        button.image = Self.makeMenuBarImage(running: running,
+                                             appearance: button.effectiveAppearance)
     }
 
     /// The menu bar glyph (the app's own controller artwork). Idle: template
     /// (system tints it for the menu bar). Running: a solid green,
-    /// non-template copy so "mappings on" reads at a glance.
-    private static func makeMenuBarImage(running: Bool) -> NSImage? {
+    /// non-template copy so "mappings on" reads at a glance. Because a colored
+    /// (non-template) image does not auto-invert, the green shade is chosen
+    /// from the menu bar's light/dark appearance: a bright system green on a
+    /// dark bar, a deeper forest green on a light bar, so it stays legible
+    /// either way, like the way macOS menu bar icons adapt.
+    private static func makeMenuBarImage(running: Bool,
+                                         appearance: NSAppearance) -> NSImage? {
         let size = NSSize(width: 26, height: 17.4)
         guard let base = NSImage(named: "ControllerGlyph") else { return nil }
         if running {
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let fill: NSColor = isDark
+                ? NSColor.systemGreen
+                : NSColor(srgbRed: 0.11, green: 0.44, blue: 0.17, alpha: 1.0)
             let green = NSImage(size: size, flipped: false) { rect in
-                NSColor.systemGreen.setFill()
+                fill.setFill()
                 rect.fill()
                 base.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1.0)
                 return true
@@ -147,14 +195,16 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             mappingEngine: mappingEngine,
             controllerService: controllerService,
             onToggle: { [weak self] preset in self?.toggle(preset) },
+            onNewPreset: { [weak self] in self?.dismissThen { self?.newPreset() } },
+            onSmartMaker: { [weak self] in self?.dismissThen { self?.openSmartMaker() } },
+            onStatistics: { [weak self] in self?.dismissThen { self?.openStatistics() } },
             onOpen: { [weak self] in self?.dismissThen { self?.openMainWindow() } },
             onSettings: { [weak self] in self?.dismissThen { self?.openSettings() } },
             onHelp: { [weak self] in self?.dismissThen { self?.openHelpGuides() } },
-            onTestBench: { [weak self] in self?.dismissThen { self?.openTestBench() } },
             onSupport: { [weak self] in self?.dismissThen { self?.openTipJar() } },
             onQuit: { [weak self] in self?.quitApp() }
         )
-        let hosting = NSHostingController(rootView: root)
+        let hosting = NSHostingController(rootView: root.reduceMotionFriendly())
         hosting.sizingOptions = [.preferredContentSize]
         pop.contentViewController = hosting
         pop.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
@@ -260,9 +310,26 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         HelpGuideWindowController.shared.show()
     }
 
-    @objc private func openTestBench() {
-        NSApp.activate(ignoringOtherApps: true)
-        TestBenchWindowController.shared.show()
+    /// Bring the main window forward and open the Statistics sheet.
+    @objc private func openStatistics() {
+        openMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NotificationCenter.default.post(name: .inputConfigShowStats, object: nil)
+        }
+    }
+
+    /// Bring the main window forward and open the Smart Preset Maker.
+    @objc private func openSmartMaker() {
+        openMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NotificationCenter.default.post(name: .inputConfigOpenSmartMaker, object: nil)
+        }
+    }
+
+    /// Create a fresh preset and bring the app forward to edit it.
+    @objc private func newPreset() {
+        _ = presetStore?.createPreset()
+        openMainWindow()
     }
 
     @objc private func openTipJar() {
@@ -277,289 +344,271 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
 // MARK: - Popover UI (YapToText menu bar language)
 
-/// The menu bar's SwiftUI content. Frosted panel, flat tinted glyph header,
-/// quiet status strip, controllers + grouped presets, bare-icon footer.
-/// Feature-parity with the old NSMenu: nothing was dropped.
+/// The menu bar popover, a close replica of YapToText's so the family shares
+/// one menu-bar language: the SAME frosted window container glass, the SAME
+/// spacing (VStack spacing 10, padding 12, width 320), the SAME component
+/// tokens (translucent header action pill, capsule selector pills, innerWell
+/// square quick-actions, bare-icon footer). Only the content differs, mapped
+/// onto InputConfig's domain: the Mode/Input pills become Preset/Controller,
+/// the record pill becomes Start/Stop, and Recent becomes engine Status.
 private struct MenuBarPopoverView: View {
     @ObservedObject var presetStore: PresetStore
     @ObservedObject var mappingEngine: MappingEngine
     weak var controllerService: GameControllerService?
     let onToggle: (Preset) -> Void
+    let onNewPreset: () -> Void
+    let onSmartMaker: () -> Void
+    let onStatistics: () -> Void
     let onOpen: () -> Void
     let onSettings: () -> Void
     let onHelp: () -> Void
-    let onTestBench: () -> Void
     let onSupport: () -> Void
     let onQuit: () -> Void
 
     @ObservedObject private var stats = SystemStatsService.shared
-
     private var activePreset: Preset? { presetStore.presets.first { $0.isActive } }
+    private var running: Bool { mappingEngine.isRunning }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             header
+            selectorRow
+            quickActions
             Divider()
-            statusStrip
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    controllersSection
-                    presetsSection
-                }
-                .padding(.horizontal, Space.s)
-                .padding(.vertical, Space.s)
-            }
-            .frame(maxHeight: 320)
+            statusSection
             Divider()
             footer
         }
+        .padding(12)
         .frame(width: 320)
-        // The popover is a separate hosting controller outside ContentView's
-        // environment, so hierarchical rendering is set explicitly here.
         .symbolRenderingMode(.hierarchical)
-        // The "water" panel: same frosted material as YapToText's menu bar.
-        .background(.ultraThinMaterial)
+        .focusEffectDisabled()
+        // THE glass: the same window-container frosted material YapToText uses,
+        // which fills the whole popover window (not just behind the content the
+        // way a plain .background does), so the liquid-glass look matches.
+        .menuBarGlass()
     }
 
-    // MARK: Header
+    // MARK: Header - brand + the one action (Start/Stop), like the record pill
 
     private var header: some View {
-        let running = activePreset != nil
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                ControllerGlyph(height: 26)
-                    .iconTint(running ? .green : .secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("InputConfig")
-                        .font(.headline)
-                    Text(activePreset?.name ?? "No preset active")
-                        .font(.caption)
-                        .foregroundStyle(running ? AnyShapeStyle(Color.green.opacity(0.85))
-                                                 : AnyShapeStyle(.secondary))
-                        .lineLimit(1)
-                }
-                Spacer()
-                if activePreset != nil {
-                    Button("Stop") { if let a = activePreset { onToggle(a) } }
-                        .buttonStyle(SolidButton(tint: .red, size: .compact))
-                        .accessibilityLabel("Deactivate the running preset")
-                }
-            }
-            // Tag + binding summary for the active preset (feature parity
-            // with the old menu's session header).
-            if let active = activePreset {
-                VStack(alignment: .leading, spacing: 1) {
-                    if !active.tag.isEmpty {
-                        Text(active.tag)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    let total = active.joysticks.reduce(0) { $0 + $1.bindings.count }
-                    Text("\(total) \(total == 1 ? "binding" : "bindings") across \(active.joysticks.count) \(active.joysticks.count == 1 ? "slot" : "slots")")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.leading, 34)
-            }
+        HStack(spacing: 8) {
+            ControllerGlyph(height: 26)
+                .iconTint(running ? .green : .green)
+                .accessibilityHidden(true)
+            Text("InputConfig").font(.headline)
+            Spacer()
+            enginePill
         }
-        .padding(Metrics.cardPad)
     }
 
-    // MARK: Status strip
+    @ViewBuilder private var enginePill: some View {
+        if let active = activePreset {
+            Button { onToggle(active) } label: {
+                pill(icon: "stop.fill", text: "Stop", tint: .icStop)
+            }
+            .buttonStyle(.plain).help("Stop \(active.name)")
+            .accessibilityLabel("Stop the running preset")
+        } else {
+            let target = firstRunnable
+            Button { if let t = target { onToggle(t) } } label: {
+                pill(icon: "play.fill", text: "Start", tint: .green)
+            }
+            .buttonStyle(.plain).disabled(target == nil).opacity(target == nil ? 0.5 : 1)
+            .help(target.map { "Start \($0.name)" } ?? "Add a preset first")
+            .accessibilityLabel("Start the last preset")
+        }
+    }
 
-    private var statusStrip: some View {
-        let running = mappingEngine.isRunning
+    private func pill(icon: String, text: String, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            Text(text).font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 11).padding(.vertical, 6)
+        .background(tint.opacity(0.72), in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.5))
+        .contentShape(Capsule())
+    }
+
+    private var firstRunnable: Preset? {
+        presetStore.lastActivatedPresetId
+            .flatMap { id in presetStore.presets.first { $0.id == id && $0.isRunnable } }
+            ?? presetStore.presets.first { $0.isRunnable }
+    }
+
+    // MARK: Selector row - two capsule pills (Preset + Controller), like Mode + Input
+
+    private var selectorRow: some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(presetStore.groups.sorted { $0.sortOrder < $1.sortOrder }) { group in
+                    let ps = presetStore.presets(in: group.id)
+                    if !ps.isEmpty { Section(group.name) { ForEach(ps) { presetMenuButton($0) } } }
+                }
+                let ungrouped = presetStore.presets(in: nil)
+                if !ungrouped.isEmpty {
+                    Section(presetStore.groups.isEmpty ? "Presets" : "Ungrouped") {
+                        ForEach(ungrouped) { presetMenuButton($0) }
+                    }
+                }
+            } label: {
+                selectorLabel("Preset", icon: "slider.horizontal.3", value: activePreset?.name ?? "No preset")
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            .help("Switch the active preset")
+
+            Menu {
+                if let svc = controllerService, !svc.controllerDetails.isEmpty {
+                    Section("Connected") {
+                        ForEach(svc.controllerDetails.keys.sorted(), id: \.self) { slot in
+                            if let info = svc.controllerDetails[slot] {
+                                Button {} label: {
+                                    if info.hasBattery, let level = info.batteryLevel {
+                                        Label("\(info.name)  \(Int(level * 100))%", systemImage: "gamecontroller")
+                                    } else {
+                                        Label(info.name, systemImage: "gamecontroller")
+                                    }
+                                }.disabled(true)
+                            }
+                        }
+                    }
+                } else {
+                    Button("No controller connected") {}.disabled(true)
+                }
+            } label: {
+                selectorLabel("Controller", icon: "gamecontroller.fill", value: primaryControllerName)
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            .help("Connected controllers")
+        }
+    }
+
+    @ViewBuilder private func presetMenuButton(_ preset: Preset) -> some View {
+        Button { onToggle(preset) } label: {
+            Label(preset.name,
+                  systemImage: preset.isActive ? "checkmark"
+                      : (preset.isRunnable ? "circle" : "circle.dashed"))
+        }
+        .disabled(!preset.isRunnable && !preset.isActive)
+    }
+
+    private var primaryControllerName: String {
+        guard let d = controllerService?.controllerDetails, !d.isEmpty else { return "No controller" }
+        if d.count == 1, let info = d.first?.value { return info.name }
+        return "\(d.count) controllers"
+    }
+
+    /// The capsule selector pill, identical to YapToText's selectorLabel token.
+    private func selectorLabel(_ label: String, icon: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.caption).iconTint(.green)
+            Text(value).font(.caption.weight(.semibold)).foregroundStyle(.primary)
+                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("\(label): \(value)")
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.06), in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.12), lineWidth: 0.5))
+        .contentShape(Capsule())
+    }
+
+    // MARK: Quick actions - innerWell square buttons, identical token to YapToText
+
+    private var quickActions: some View {
+        HStack(spacing: 8) {
+            squareButton("New Preset", "plus.rectangle.on.rectangle", action: onNewPreset)
+            squareButton("Smart Preset", "wand.and.stars", action: onSmartMaker)
+            squareButton("Statistics", "chart.line.uptrend.xyaxis", action: onStatistics)
+        }
+    }
+
+    private func squareButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 18)).iconTint(.green)
+                Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity).frame(height: 62)
+            .innerWell(radius: 11)
+            .contentShape(RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(.plain).help(title)
+    }
+
+    // MARK: Status - the "Recent" slot, showing engine state (InputConfig domain)
+
+    private var statusSection: some View {
         let paused = mappingEngine.outputsPaused
         let dot: Color = running ? (paused ? .orange : .green) : .secondary
         let label = running
-            ? (paused ? "Outputs paused (editor open)" : "Engine running \(mappingEngine.currentPollHz) Hz")
+            ? (paused ? "Outputs paused" : "Engine running \(mappingEngine.currentPollHz) Hz")
             : "Engine idle"
-        return HStack(spacing: 6) {
-            Circle().fill(dot.opacity(0.85)).frame(width: 7, height: 7)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.primary)
-            Spacer(minLength: 8)
-            Text(String(format: "CPU %.1f%%  \u{00B7}  RAM %.0f MB",
-                        stats.current.smoothedCpuPercent,
-                        Double(stats.current.residentMemoryBytes) / 1_048_576.0))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, Metrics.cardPad)
-        .padding(.vertical, 8)
-    }
-
-    // MARK: Controllers
-
-    @ViewBuilder
-    private var controllersSection: some View {
-        sectionHeader("Controllers")
-        if let svc = controllerService, !svc.controllerDetails.isEmpty {
-            ForEach(svc.controllerDetails.keys.sorted(), id: \.self) { slot in
-                if let info = svc.controllerDetails[slot] {
-                    HStack(spacing: 8) {
-                        ControllerGlyph(height: 11)
-                            .foregroundStyle(.secondary)
-                        Text(info.name)
-                            .font(.caption)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        if info.hasBattery, let level = info.batteryLevel {
-                            Text("\(Int(level * 100))%")
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, Space.s)
-                    .padding(.vertical, 3)
-                }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Status").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
             }
-        } else {
-            Text("None connected")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, Space.s)
-                .padding(.vertical, 3)
-        }
-    }
-
-    // MARK: Presets
-
-    @ViewBuilder
-    private var presetsSection: some View {
-        sectionHeader("Presets")
-        ForEach(presetStore.groups.sorted { $0.sortOrder < $1.sortOrder }) { group in
-            let ps = presetStore.presets(in: group.id)
-            if !ps.isEmpty {
-                groupLabel(group.name)
-                ForEach(ps) { presetRow($0) }
+            HStack(spacing: 6) {
+                Circle().fill(dot.opacity(0.85)).frame(width: 7, height: 7)
+                Text(label).font(.caption)
+                Spacer(minLength: 8)
+                Text(String(format: "CPU %.0f%%  \u{00B7}  RAM %.0f MB",
+                            stats.current.smoothedCpuPercent,
+                            Double(stats.current.residentMemoryBytes) / 1_048_576.0))
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
             }
         }
-        let ungrouped = presetStore.presets(in: nil)
-        if !ungrouped.isEmpty {
-            groupLabel(presetStore.groups.isEmpty ? "" : "Ungrouped")
-            ForEach(ungrouped) { presetRow($0) }
-        }
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .kerning(0.6)
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, Space.s)
-            .padding(.top, 10)
-            .padding(.bottom, 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func groupLabel(_ title: String) -> some View {
-        if !title.isEmpty {
-            HStack(spacing: 5) {
-                Image(systemName: "folder")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text(title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, Space.s)
-            .padding(.top, 6)
-            .padding(.bottom, 1)
-        }
-    }
-
-    private func presetRow(_ preset: Preset) -> some View {
-        MenuHoverRow(active: preset.isActive, enabled: preset.isRunnable) {
-            onToggle(preset)
-        } label: {
-            HStack(spacing: Space.s) {
-                Text(preset.name)
-                    .font(.subheadline)
-                    .foregroundStyle(preset.isRunnable ? .primary : .secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if preset.isActive {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.semibold))
-                        .iconTint(.green)
-                }
-            }
-        }
-        .help(preset.isRunnable ? "" : "No bindings yet. Open InputConfig to add some.")
-    }
-
-    // MARK: Footer
+    // MARK: Footer - four bare icons: meta left, go-to-app right (YapToText layout)
 
     private var footer: some View {
         HStack(spacing: 16) {
+            MenuFooterIcon(symbol: "power", help: "Quit InputConfig", action: onQuit)
+            MenuFooterIcon(symbol: "heart.fill", help: "Support InputConfig", tint: .pink, action: onSupport)
+            Spacer()
             MenuFooterIcon(symbol: "macwindow", help: "Open InputConfig", action: onOpen)
             MenuFooterIcon(symbol: "gearshape", help: "Settings", action: onSettings)
-            MenuFooterIcon(symbol: "questionmark.circle", help: "Help Guides", action: onHelp)
-            MenuFooterIcon(symbol: "wrench.and.screwdriver", help: "Test Bench", action: onTestBench)
-            Spacer()
-            MenuFooterIcon(symbol: "heart.fill", help: "Support InputConfig", tint: .pink, action: onSupport)
-            MenuFooterIcon(symbol: "power", help: "Quit InputConfig", action: onQuit)
         }
         .font(.body)
-        .padding(Metrics.cardPad)
     }
 }
 
-/// A full-width preset row with hover + active tint, kept as its own view so
-/// the hover @State works (a ButtonStyle can't hold state).
-private struct MenuHoverRow<Label: View>: View {
-    /// The active-preset row tint (a named token, not an inline literal).
-    private static var activeFill: Color { Color.green.opacity(0.14) }
-
-    let active: Bool
-    let enabled: Bool
-    let action: () -> Void
-    @ViewBuilder let label: () -> Label
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: { if enabled { action() } }) {
-            label()
-                .padding(.horizontal, Space.s).padding(.vertical, Space.s)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Metrics.innerRadius, style: .continuous)
-                        .fill(active ? Self.activeFill : Color.clear)
-                )
-                .hoverFill(hovering && !active)
-                .contentShape(RoundedRectangle(cornerRadius: Metrics.innerRadius, style: .continuous))
+private extension View {
+    /// The family menu-bar window glass. On macOS 15+ this is the true
+    /// window-container frosted material (fills the whole popover window,
+    /// matching YapToText); on the macOS 14 App Store floor it falls back to a
+    /// plain material background behind the content.
+    @ViewBuilder func menuBarGlass() -> some View {
+        if #available(macOS 15.0, *) {
+            containerBackground(.ultraThinMaterial, for: .window)
+        } else {
+            background(.ultraThinMaterial)
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 && enabled }
     }
 }
 
 /// A footer icon button: the shared hover fill and, for colored icons, the
-/// shared iconTint transparency.
+/// shared iconTint transparency. Matches YapToText's footer icon language.
 private struct MenuFooterIcon: View {
     let symbol: String
     let help: String
     var tint: Color? = nil
     let action: () -> Void
-    @State private var hovering = false
 
+    // Bare icon button, identical to YapToText's footer buttons: no padding,
+    // no hover fill, no enlarged hit shape. This is what makes the glyphs sit
+    // flush at the 12pt container margin with a true 16pt gap (the padded
+    // version inflated them and pushed the corner icons inward).
     var body: some View {
-        Button(action: action) {
-            glyph
-                .padding(Space.s)
-                .hoverFill(hovering)
-                .contentShape(RoundedRectangle(cornerRadius: Metrics.innerRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(help)
-        .accessibilityLabel(help)
+        Button(action: action) { glyph }
+            .buttonStyle(.plain)
+            .help(help)
+            .accessibilityLabel(help)
     }
 
     @ViewBuilder private var glyph: some View {

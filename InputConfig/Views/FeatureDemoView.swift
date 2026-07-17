@@ -305,9 +305,14 @@ private func inputBlock(label: String, pressed: Bool, tint: Color) -> some View 
 
 /// Horizontal arrow with a flowing gradient that brightens when `active`
 /// is true. Visually conveys "input traveling to output" across the demo.
-@ViewBuilder
-private func gradientArrow(active: Bool, tint: Color) -> some View {
-    TimelineView(.animation) { context in
+/// A struct (not a free func) so it can read the Reduce Motion setting.
+private struct GradientArrow: View {
+    let active: Bool
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+    TimelineView(.animation(paused: reduceMotion)) { context in
         let t = context.date.timeIntervalSinceReferenceDate
         let flow = active ? (sin(t * 4) + 1) / 2 : 0.0
 
@@ -335,13 +340,21 @@ private func gradientArrow(active: Bool, tint: Color) -> some View {
         }
         .frame(width: 90)
     }
+    }
+}
+
+/// Call-site shim so existing `gradientArrow(active:tint:)` uses keep working.
+@ViewBuilder
+private func gradientArrow(active: Bool, tint: Color) -> some View {
+    GradientArrow(active: active, tint: tint)
 }
 
 // MARK: - Demo: Keyboard & Mouse
 
 private struct KeyboardMouseDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = t.truncatingRemainder(dividingBy: 4) / 4
             let angle = phase * 2 * .pi
@@ -387,8 +400,9 @@ private struct KeyboardMouseDemo: View {
 // MARK: - Demo: MIDI
 
 private struct MidiDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let beat = Int(t.truncatingRemainder(dividingBy: 1.6) / 0.2) % 8
             // Three DAW icons rotate every ~2 seconds.
@@ -459,8 +473,9 @@ private struct MidiDemo: View {
 // MARK: - Demo: Variable Sensitivity
 
 private struct VariableSensitivityDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // depth oscillates between 0 and 1 over 3 seconds
             let depth = (sin(t / 3 * 2 * .pi) + 1) / 2
@@ -548,8 +563,9 @@ private struct VariableSensitivityDemo: View {
 // MARK: - Demo: Deadzone
 
 private struct DeadzoneDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Thumb traces an outward spiral so it crosses both rings.
             let phase = t.truncatingRemainder(dividingBy: 5) / 5
@@ -601,8 +617,9 @@ private struct DeadzoneDemo: View {
 // MARK: - Demo: Macros & Turbo
 
 private struct MacrosDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let cyclePos = t.truncatingRemainder(dividingBy: 2.5)
 
@@ -668,8 +685,9 @@ private struct MacrosDemo: View {
 // MARK: - Demo: Haptic Feedback
 
 private struct HapticDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Press cycle: 0.0 idle, 0.5 pressed, ~1.2s burst, then ease out
             let cycle = t.truncatingRemainder(dividingBy: 2.4)
@@ -722,8 +740,9 @@ private struct HapticDemo: View {
 // MARK: - Demo: Spoken Feedback
 
 private struct SpeechDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // A new phrase fires every 1.5s; "pressed" window lines up with
             // the first 0.5s of each phrase so the arrow visibly flashes
@@ -785,8 +804,9 @@ private struct SpeechDemo: View {
 // MARK: - Demo: Light Bar
 
 private struct LightBarDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let hue = t.truncatingRemainder(dividingBy: 6) / 6
             let color = Color(hue: hue, saturation: 0.85, brightness: 1)
@@ -830,6 +850,7 @@ private struct LightBarDemo: View {
 // MARK: - Demo: Wide Controller Support
 
 private struct ControllersDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let entries: [(symbol: String, name: String)] = [
         ("gamecontroller.fill", "DualSense"),
         ("gamecontroller.fill", "Xbox"),
@@ -840,7 +861,7 @@ private struct ControllersDemo: View {
     ]
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let active = Int(t.truncatingRemainder(dividingBy: Double(entries.count) * 1.0))
 
@@ -870,8 +891,9 @@ private struct ControllersDemo: View {
 // MARK: - Demo: Gyroscope Motion
 
 private struct GyroDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Yaw oscillates left/right; pitch traces a slower curve; roll
             // adds a third axis of motion so the 3D model shows off all
@@ -931,8 +953,9 @@ private struct GyroDemo: View {
 // MARK: - Demo: Touchpad Mouse
 
 private struct TouchpadDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Finger traces a figure-8 across the trackpad.
             let p = t.truncatingRemainder(dividingBy: 3) / 3
@@ -990,10 +1013,11 @@ private struct TouchpadDemo: View {
 // MARK: - Demo: Lifetime Statistics
 
 private struct StatsDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let labels = ["Cross", "Square", "L Trig", "R Trig", "Stick", "D-Pad", "Touch"]
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = t.truncatingRemainder(dividingBy: 8) / 8
             let presses = Int(125_437 + phase * 4321)
@@ -1087,8 +1111,9 @@ private struct StatsDemo: View {
 /// The "OUTPUT" lamp on the right shows the latched state, the press indicator
 /// pulses only while the button is physically down.
 private struct ToggleModeDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1172,8 +1197,9 @@ private struct ToggleModeDemo: View {
 /// speech). Each output lights at the same instant; the whole point is to
 /// contrast with macros, which sequence outputs in time.
 private struct StackedOutputsDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1262,8 +1288,9 @@ private struct StackedOutputsDemo: View {
 /// confine ring appears around the cursor area. Cursor wanders but gets gently
 /// nudged back when it touches the edge.
 private struct AutoLaunchDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1364,8 +1391,9 @@ private struct AutoLaunchDemo: View {
 /// values that follow the stick's X / Y / radius / angle. Shown as labeled
 /// horizontal bars so it reads as "soft knobs for your DAW."
 private struct MidiCCDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }

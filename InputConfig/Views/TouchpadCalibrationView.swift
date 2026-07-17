@@ -252,17 +252,6 @@ struct TouchpadCalibrationView: View {
         }
     }
 
-    private var activeDeviceHelpText: String {
-        switch activeDevice {
-        case .dualSense:
-            return "DualSense reports finger positions over USB or Bluetooth. Sweep the surface once to teach the app your touchpad's bounds, then define zones in the Regions tab."
-        case .dualShock4:
-            return "DualShock 4 reports finger positions just like DualSense. Sweep the surface once, then define zones in the Regions tab."
-        case .macTrackpad:
-            return "macOS doesn't expose per-finger touchpad data to sandboxed apps. The Mac Trackpad mode uses cursor zones instead. Define screen rectangles in the Regions tab; bindings fire while the cursor is inside."
-        }
-    }
-
     // MARK: - Close handling
 
     private func attemptClose() {
@@ -740,6 +729,7 @@ struct TouchpadCalibrationView: View {
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Bind this region")
             .disabled(presetStore.activePresetId == nil)
             .help(presetStore.activePresetId == nil
                   ? "Open or create a preset to bind this region"

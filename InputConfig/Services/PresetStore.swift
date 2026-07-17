@@ -425,28 +425,40 @@ class PresetStore: ObservableObject {
         //      once, because only never-ledgered names are seeded.
         let ledgerKey = "InputConfig.seededExampleNames.v1"
         var seededNames = Set(defaults.stringArray(forKey: ledgerKey) ?? [])
-        if seededNames.isEmpty && defaults.bool(forKey: exampleSeedKey) {
-            // Migration for installs that seeded before the ledger existed:
-            // stamp every currently-shipped example as already seeded, so
-            // nothing the user has since renamed or deleted comes back.
-            seededNames = Set(ExamplePresets.all.map(\.name))
-            defaults.set(Array(seededNames).sorted(), forKey: ledgerKey)
-        }
-        var ledgerDirty = false
-        for example in ExamplePresets.all where !seededNames.contains(example.name) {
-            if !existingNames.contains(example.name) {
-                var copy = example
-                if let groupName = ExamplePresets.groupAssignments[example.name],
-                   let groupID = groupIDsByName[groupName] {
-                    copy.groupID = groupID
-                }
-                savePreset(copy)
+        // Only evaluate ExamplePresets.all (26 computed properties, each a JSON
+        // decode) when it can actually matter: a fresh install (empty ledger)
+        // or a new app build that may ship new examples. On an ordinary
+        // same-build relaunch the ledger already contains every example, so the
+        // seed loop below would skip every body anyway - gating here skips the
+        // wasted 26-preset parse entirely. Step 3 self-heal below is untouched
+        // and still runs every launch (it uses only the cheap static dict).
+        let seedBuildKey = "InputConfig.lastExampleSeedBuild"
+        let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        if seededNames.isEmpty || defaults.string(forKey: seedBuildKey) != currentBuild {
+            if seededNames.isEmpty && defaults.bool(forKey: exampleSeedKey) {
+                // Migration for installs that seeded before the ledger existed:
+                // stamp every currently-shipped example as already seeded, so
+                // nothing the user has since renamed or deleted comes back.
+                seededNames = Set(ExamplePresets.all.map(\.name))
+                defaults.set(Array(seededNames).sorted(), forKey: ledgerKey)
             }
-            seededNames.insert(example.name)
-            ledgerDirty = true
+            var ledgerDirty = false
+            for example in ExamplePresets.all where !seededNames.contains(example.name) {
+                if !existingNames.contains(example.name) {
+                    var copy = example
+                    if let groupName = ExamplePresets.groupAssignments[example.name],
+                       let groupID = groupIDsByName[groupName] {
+                        copy.groupID = groupID
+                    }
+                    savePreset(copy)
+                }
+                seededNames.insert(example.name)
+                ledgerDirty = true
+            }
+            if ledgerDirty { defaults.set(Array(seededNames).sorted(), forKey: ledgerKey) }
+            defaults.set(true, forKey: exampleSeedKey)
+            defaults.set(currentBuild, forKey: seedBuildKey)
         }
-        if ledgerDirty { defaults.set(Array(seededNames).sorted(), forKey: ledgerKey) }
-        defaults.set(true, forKey: exampleSeedKey)
 
         // Step 3 (self-heal): make sure every built-in example preset that
         // belongs in a ship folder is actually in it. This only fixes presets
@@ -476,6 +488,18 @@ class PresetStore: ObservableObject {
     private static let ioQueue = DispatchQueue(label: "com.inputconfig.preset-io",
                                                 qos: .utility)
 
+    /// Per-preset write generation, used to coalesce a burst of superseded
+    /// saves (e.g. a live ColorPicker drag firing the binding setter dozens of
+    /// times/sec) down to the final write. Incremented on the MainActor in
+    /// savePreset, read on ioQueue; guarded by writeGenLock. The snapshot step
+    /// and the synchronous in-memory update are unaffected, so version history
+    /// and UI stay identical, only redundant intermediate encode+writes drop.
+    // nonisolated(unsafe): the class is @MainActor but these are touched from
+    // the background ioQueue too; writeGenLock serializes all access, so the
+    // manual synchronization is sound and we opt out of actor/Sendable checks.
+    nonisolated(unsafe) private var writeGeneration: [UUID: Int] = [:]
+    nonisolated(unsafe) private let writeGenLock = NSLock()
+
     private func savePresetToDisk(_ preset: Preset) {
         var mutable = preset
         mutable.modifiedAt = Date()
@@ -497,6 +521,14 @@ class PresetStore: ObservableObject {
         // one - so this runs before the encode of the new state.
         let priorFile = fileURL
         let snapshotDir = versionsDirectory.appendingPathComponent(mutable.id.uuidString)
+
+        // Bump this preset's write generation now (on the MainActor). A later
+        // savePreset for the same id enqueued while this one waits will raise
+        // the generation, so the stale block below skips its encode+write.
+        writeGenLock.lock()
+        let myGen = (writeGeneration[mutable.id] ?? 0) + 1
+        writeGeneration[mutable.id] = myGen
+        writeGenLock.unlock()
 
         // Update the in-memory model immediately so the UI stays in sync,
         // but push the encode + write to a background queue so the Save
@@ -541,7 +573,13 @@ class PresetStore: ObservableObject {
                 }
             }
 
-            // 2. Write the new state.
+            // 2. Write the new state, unless a newer save for this preset was
+            //    enqueued while this one waited (color-drag burst): the final
+            //    generation still writes, intermediate ones nobody reads drop.
+            self.writeGenLock.lock()
+            let isLatest = self.writeGeneration[mutable.id] == myGen
+            self.writeGenLock.unlock()
+            guard isLatest else { return }
             if let data = try? JSONEncoder().encode(mutable) {
                 try? data.write(to: fileURL, options: .atomic)
             }
@@ -838,7 +876,9 @@ class PresetStore: ObservableObject {
     // MARK: - Activation
 
     func activatePreset(_ preset: Preset) {
-        deactivateAll()
+        // Suppress the "deactivated" announcement so a preset switch only
+        // announces the activation, not both halves of the swap.
+        deactivateAll(announce: false)
         activePresetId = preset.id
         lastActivatedPresetId = preset.id
         if let index = presets.firstIndex(where: { $0.id == preset.id }) {
@@ -850,9 +890,11 @@ class PresetStore: ObservableObject {
         // in deterministic order; two unstructured Tasks could reorder and
         // leave the sentinel stuck at nil while a preset is actually active.
         CrashRecoveryService.shared.recordActivePreset(preset.id)
+        AccessibilityNotification.Announcement("Activated preset \(preset.name)").post()
     }
 
-    func deactivateAll() {
+    func deactivateAll(announce: Bool = true) {
+        let wasActive = activePresetId != nil
         activePresetId = nil
         // Only rewrite presets that are actually active. Writing isActive=false
         // on every preset copy-on-write-copied the whole library on each switch;
@@ -861,6 +903,9 @@ class PresetStore: ObservableObject {
             presets[i].isActive = false
         }
         CrashRecoveryService.shared.recordActivePreset(nil)
+        if announce && wasActive {
+            AccessibilityNotification.Announcement("Presets deactivated").post()
+        }
     }
 
     func togglePreset(_ preset: Preset) {

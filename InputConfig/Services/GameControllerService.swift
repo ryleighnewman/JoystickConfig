@@ -105,9 +105,17 @@ class GameControllerService: ObservableObject {
     @Published var connectedControllers: [GCController] = []
     @Published var controllerNames: [Int: String] = [:]
     @Published var controllerDetails: [Int: ControllerInfo] = [:]
-    @Published var lightColors: [Int: (r: Float, g: Float, b: Float)] = [:]
-    @Published var lightBrightness: [Int: UInt8] = [:] // 0=off, 1=dim, 2=bright
-    @Published var lastInput: (joystickIndex: Int, inputEvent: InputEvent)?
+    // Not @Published: no view observes these (LED state is driven to hardware
+    // and the RGB/brightness UI reads rgbCycleActive/lightPresets instead), so
+    // publishing fired the whole service's objectWillChange on every 10 Hz RGB
+    // tick for zero UI benefit. Plain vars: identical internal reads/writes.
+    var lightColors: [Int: (r: Float, g: Float, b: Float)] = [:]
+    var lightBrightness: [Int: UInt8] = [:] // 0=off, 1=dim, 2=bright
+    // NOTE: there used to be a `@Published var lastInput` here that every
+    // scan handler wrote on every input event. Nothing read it, but each
+    // write fired objectWillChange on this service at the controller's
+    // report rate (250+ Hz on Bluetooth), forcing a full re-layout of every
+    // observing view. Held sticks pinned the main thread at 90%+ CPU.
     @Published var isScanning: Bool = false
     /// Serialized input event strings (e.g. "btn 5", "axi 0 +") that are
     /// currently pressed / deflected across *any* connected controller.
@@ -187,6 +195,52 @@ class GameControllerService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.tutorialFakeFlagKey)
         NSLog("[GameControllerService] Cleared stale tutorial fake controller from previous session")
     }
+
+    #if DEBUG
+    private(set) var marketingFakeActive = false
+    /// DEBUG / marketing-capture only: inject two clean-named synthetic
+    /// controllers (a DualSense Edge in slot 0, a PlayStation Access Controller
+    /// in slot 1) so App Store screenshots show a populated sidebar and a
+    /// fully-drawn visualizer with no hardware attached. Unlike the Quick Tour
+    /// fake there is no "(Tutorial)" suffix. `refreshControllers()` is guarded
+    /// to leave these in place. Driven by DebugMarketing.fakeController (which
+    /// the `inputconfig.debug.fakecontroller` notification toggles); never
+    /// compiled into a Release build.
+    func setMarketingFakeControllers(_ on: Bool) {
+        guard on != marketingFakeActive else { return }
+        if !on {
+            controllerDetails.removeValue(forKey: 0)
+            controllerDetails.removeValue(forKey: 1)
+            controllerNames.removeValue(forKey: 0)
+            controllerNames.removeValue(forKey: 1)
+            marketingFakeActive = false
+            return
+        }
+        marketingFakeActive = true
+        controllerNames[0] = "DualSense Edge Wireless Controller"
+        controllerNames[1] = "Access Controller"
+        controllerDetails[0] = ControllerInfo(
+            name: "DualSense Edge Wireless Controller",
+            productCategory: "DualSense Edge",
+            hasExtendedGamepad: true, hasLight: true, hasBattery: true,
+            batteryLevel: 1.0, batteryState: "charging",
+            buttonCount: 18, axisCount: 6, supportsMotion: true,
+            hasTouchpad: true, hasMicroGamepad: false, hasAdaptiveTriggers: true,
+            physicalButtonNames: ["A", "B", "X", "Y", "LB", "RB", "LT", "RT",
+                                  "Share", "Menu", "Home", "L3", "R3", "Touchpad",
+                                  "Mute", "Left Paddle", "Right Paddle"],
+            brand: .dualSense)
+        controllerDetails[1] = ControllerInfo(
+            name: "Access Controller",
+            productCategory: "Access Controller",
+            hasExtendedGamepad: true, hasLight: false, hasBattery: true,
+            batteryLevel: 0.95, batteryState: "discharging",
+            buttonCount: 8, axisCount: 2, supportsMotion: false,
+            hasTouchpad: false, hasMicroGamepad: false, hasAdaptiveTriggers: false,
+            physicalButtonNames: ["1", "2", "3", "4", "5", "6", "7", "8"],
+            brand: .dualSense)
+    }
+    #endif
 
     /// Per-slot snapshot of the latest `ControllerState`. Updated at the
     /// same 30 Hz cadence as `rawActiveInputs`. Drives the live virtual
@@ -516,6 +570,11 @@ class GameControllerService: ObservableObject {
     }
 
     func refreshControllers() {
+        #if DEBUG
+        // Marketing capture: leave the synthetic controllers in place rather
+        // than rebuilding the (empty) slot dict from real hardware.
+        if marketingFakeActive { return }
+        #endif
         // Capture light/RGB state by controller identity BEFORE we
         // rebuild the slot dict. After the rebuild we reassign by
         // identity rather than blind slot index - otherwise when a
@@ -1220,7 +1279,6 @@ class GameControllerService: ObservableObject {
                         // Terminal so the user can confirm presses reach us.
                         NSLog("[GCS] SCAN typed btn fired: slot=%d index=%d", index, btnIndex)
                         let event = InputEvent.button(btnIndex)
-                        self?.lastInput = (index, event)
                         self?.scanCallback?(event)
                     }
                 }
@@ -1242,7 +1300,6 @@ class GameControllerService: ObservableObject {
                 if pressed {
                     Task { @MainActor in
                         let event = InputEvent.button(btnIndex)
-                        self?.lastInput = (index, event)
                         self?.scanCallback?(event)
                     }
                 }
@@ -1268,7 +1325,6 @@ class GameControllerService: ObservableObject {
                 else if xValue > 0.5 { event = InputEvent.hat(0, direction: .right) }
 
                 if let event = event {
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
             }
@@ -1279,12 +1335,10 @@ class GameControllerService: ObservableObject {
             Task { @MainActor in
                 if abs(xValue) > 0.5 {
                     let event = InputEvent.axis(0, direction: xValue > 0 ? .positive : .negative)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
                 if abs(yValue) > 0.5 {
                     let event = InputEvent.axis(1, direction: yValue > 0 ? .negative : .positive)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
             }
@@ -1294,12 +1348,10 @@ class GameControllerService: ObservableObject {
             Task { @MainActor in
                 if abs(xValue) > 0.5 {
                     let event = InputEvent.axis(2, direction: xValue > 0 ? .positive : .negative)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
                 if abs(yValue) > 0.5 {
                     let event = InputEvent.axis(3, direction: yValue > 0 ? .negative : .positive)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
             }
@@ -1310,7 +1362,6 @@ class GameControllerService: ObservableObject {
             if value > 0.5 {
                 Task { @MainActor in
                     let event = InputEvent.axis(4, direction: .positive)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
             }
@@ -1320,7 +1371,6 @@ class GameControllerService: ObservableObject {
             if value > 0.5 {
                 Task { @MainActor in
                     let event = InputEvent.axis(5, direction: .positive)
-                    self?.lastInput = (index, event)
                     self?.scanCallback?(event)
                 }
             }
@@ -1369,7 +1419,6 @@ class GameControllerService: ObservableObject {
                             btnIndex = self.extractButtonIndex(from: name)
                         }
                         let event = InputEvent.button(btnIndex)
-                        self.lastInput = (index, event)
                         self.scanCallback?(event)
                     }
                 }
@@ -1382,7 +1431,6 @@ class GameControllerService: ObservableObject {
                     Task { @MainActor in
                         let axisIndex = self?.extractAxisIndex(from: name) ?? 0
                         let event = InputEvent.axis(axisIndex, direction: value > 0 ? .positive : .negative)
-                        self?.lastInput = (index, event)
                         self?.scanCallback?(event)
                     }
                 }
@@ -1686,7 +1734,10 @@ class GameControllerService: ObservableObject {
         // 30 Hz polling - catches quick taps a 10 Hz loop would miss. Cheap
         // because we only read controller state and update a Set.
         rawActivePollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            // The timer fires on RunLoop.main (main thread = main actor), so run
+            // inline instead of spawning a Task per tick (an allocation + hop
+            // 30x/second). The fast-path guard inside then runs with zero cost.
+            MainActor.assumeIsolated {
                 self?.refreshRawActiveInputs()
             }
         }
@@ -1765,8 +1816,6 @@ class GameControllerService: ObservableObject {
                 break
             }
             if let first = firedKey, let event = InputEvent.parse(first) {
-                let slotForFire = scratchSnapshots.keys.first ?? 0
-                lastInput = (slotForFire, event)
                 cb(event)
             }
         }
@@ -1777,11 +1826,14 @@ class GameControllerService: ObservableObject {
         for key in scratchFreshlyActive {
             rawActiveExpiry[key] = expiryDate
         }
-        // Drop entries whose expiry has passed. In-place removal so we
-        // don't pay a fresh-Dict allocation on every tick the way
-        // .filter would. Iterate via collected keys to avoid
-        // mutating-during-iteration UB.
-        for key in Array(rawActiveExpiry.keys) where rawActiveExpiry[key]! <= now {
+        // Drop entries whose expiry has passed. Collect into a reused scratch
+        // array (not a fresh `Array(rawActiveExpiry.keys)` every 30 Hz tick) to
+        // avoid mutating-during-iteration UB with zero per-tick allocation.
+        scratchExpiredKeys.removeAll(keepingCapacity: true)
+        for (key, date) in rawActiveExpiry where date <= now {
+            scratchExpiredKeys.append(key)
+        }
+        for key in scratchExpiredKeys {
             rawActiveExpiry.removeValue(forKey: key)
         }
         // Build the published Set only when the membership actually
@@ -1798,6 +1850,9 @@ class GameControllerService: ObservableObject {
     /// Sit at the type level next to other state so they're not
     /// re-allocated on every call.
     private var scratchFreshlyActive: Set<String> = []
+    /// Reused across 30 Hz ticks to collect expired raw-active keys without a
+    /// fresh Array allocation per tick.
+    private var scratchExpiredKeys: [String] = []
     private var scratchSnapshots: [Int: ControllerState] = [:]
 
     /// Read touchpad finger positions from a `GCDualSenseGamepad` or
