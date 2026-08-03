@@ -30,7 +30,13 @@ final class AppState: ObservableObject {
         // The app is designed dark-first; in light mode the frosted-glass
         // surfaces wash out to near-white. Force the dark appearance app-wide
         // (windows, sheets, menus, popovers) regardless of the system setting.
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // Go through NSApplication.shared, never the NSApp global. NSApp is an
+        // implicitly unwrapped NSApplication! that stays nil until the shared
+        // instance exists, and on macOS 14 this initializer runs while SwiftUI
+        // builds the scene graph straight from main, before that happens - so
+        // touching NSApp here trapped at launch for every Sonoma user.
+        // NSApplication.shared is non-optional and creates the instance.
+        NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         // Boot the freeze watchdog before any heavy work runs - this is the
         // earliest place the main actor is alive, so we get the most
         // accurate "main thread responsiveness" baseline.
