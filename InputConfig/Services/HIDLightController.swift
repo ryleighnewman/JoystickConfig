@@ -185,9 +185,9 @@ final class InProcessLightWriter: @unchecked Sendable {
     /// the same byte positions, and the zero padding between fields is never
     /// touched, so a reused buffer stays byte-identical to a fresh one.
     private var bufDualSenseUSB = [UInt8](repeating: 0, count: 48)
-    private var bufDualSenseBT = [UInt8](repeating: 0, count: 79)
+    private var bufDualSenseBT = [UInt8](repeating: 0, count: 78)
     private var bufDS4USB = [UInt8](repeating: 0, count: 32)
-    private var bufDS4BT = [UInt8](repeating: 0, count: 79)
+    private var bufDS4BT = [UInt8](repeating: 0, count: 78)
 
     private static let sonyVID: Int32 = 0x054C
     private static let dualSensePIDs: Set<Int32> = [0x0CE6, 0x0DF2]
@@ -297,24 +297,40 @@ final class InProcessLightWriter: @unchecked Sendable {
                 bufDualSenseUSB[43] = brightness; bufDualSenseUSB[45] = red; bufDualSenseUSB[46] = green; bufDualSenseUSB[47] = blue
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x02, bufDualSenseUSB, bufDualSenseUSB.count)
             } else if isDS && d.isBT {
+                // 78-byte BT report: [0]=0x31, [1]=sequence<<4, [2]=0x10 tag,
+                // then the SAME payload as USB starting at [3]. The old code
+                // omitted the 0x10 tag byte, which shifted every field by one
+                // and put the CRC at the wrong offset - the controller
+                // silently discarded every packet, which is why the light
+                // never changed over Bluetooth. Layout verified live: this
+                // exact report turned the user's Edge blue.
                 bufDualSenseBT[0] = 0x31
                 sequenceTag = (sequenceTag &+ 1) & 0x0F
-                bufDualSenseBT[1] = (sequenceTag << 4) | 0x02
-                bufDualSenseBT[2] = 0x00; bufDualSenseBT[3] = 0x04; bufDualSenseBT[40] = 0x06; bufDualSenseBT[43] = 0x02
-                bufDualSenseBT[44] = brightness; bufDualSenseBT[46] = red; bufDualSenseBT[47] = green; bufDualSenseBT[48] = blue
-                let crc = Self.crc32(prefix: [0xA2, 0x31], buffer: bufDualSenseBT, range: 1..<75)
-                bufDualSenseBT[75] = UInt8(crc & 0xFF); bufDualSenseBT[76] = UInt8((crc >> 8) & 0xFF)
-                bufDualSenseBT[77] = UInt8((crc >> 16) & 0xFF); bufDualSenseBT[78] = UInt8((crc >> 24) & 0xFF)
+                bufDualSenseBT[1] = sequenceTag << 4
+                bufDualSenseBT[2] = 0x10
+                bufDualSenseBT[4] = 0x04                       // valid_flag1: lightbar control
+                bufDualSenseBT[41] = 0x02                      // valid_flag2: lightbar setup
+                bufDualSenseBT[44] = 0x02                      // lightbar_setup: light on
+                bufDualSenseBT[45] = brightness
+                bufDualSenseBT[47] = red; bufDualSenseBT[48] = green; bufDualSenseBT[49] = blue
+                let crc = Self.crc32(prefix: [0xA2], buffer: bufDualSenseBT, range: 0..<74)
+                bufDualSenseBT[74] = UInt8(crc & 0xFF); bufDualSenseBT[75] = UInt8((crc >> 8) & 0xFF)
+                bufDualSenseBT[76] = UInt8((crc >> 16) & 0xFF); bufDualSenseBT[77] = UInt8((crc >> 24) & 0xFF)
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x31, bufDualSenseBT, bufDualSenseBT.count)
             } else if Self.ds4PIDs.contains(d.pid) && !d.isBT {
                 bufDS4USB[0] = 0x05; bufDS4USB[1] = 0x07; bufDS4USB[6] = red; bufDS4USB[7] = green; bufDS4USB[8] = blue
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x05, bufDS4USB, bufDS4USB.count)
             } else if Self.ds4PIDs.contains(d.pid) && d.isBT {
-                bufDS4BT[0] = 0x11; bufDS4BT[1] = 0xC0; bufDS4BT[2] = 0x20; bufDS4BT[3] = 0xF3; bufDS4BT[4] = 0x04
-                bufDS4BT[7] = red; bufDS4BT[8] = green; bufDS4BT[9] = blue
-                let crc = Self.crc32(prefix: [0xA2, 0x11], buffer: bufDS4BT, range: 1..<75)
-                bufDS4BT[75] = UInt8(crc & 0xFF); bufDS4BT[76] = UInt8((crc >> 8) & 0xFF)
-                bufDS4BT[77] = UInt8((crc >> 16) & 0xFF); bufDS4BT[78] = UInt8((crc >> 24) & 0xFF)
+                // 78-byte DS4 BT report per DS4Windows / hid-sony: header
+                // [1]=0xC0 (HID+CRC), [2]=0xA0, enable flags [3]=0xF7,
+                // [4]=0x04, RGB at [8..10], CRC over [0..73] at [74..77].
+                // Same shifted-fields + misplaced-CRC bug as the DualSense
+                // BT path; fixed from documentation (no DS4 on hand).
+                bufDS4BT[0] = 0x11; bufDS4BT[1] = 0xC0; bufDS4BT[2] = 0xA0; bufDS4BT[3] = 0xF7; bufDS4BT[4] = 0x04
+                bufDS4BT[8] = red; bufDS4BT[9] = green; bufDS4BT[10] = blue
+                let crc = Self.crc32(prefix: [0xA2], buffer: bufDS4BT, range: 0..<74)
+                bufDS4BT[74] = UInt8(crc & 0xFF); bufDS4BT[75] = UInt8((crc >> 8) & 0xFF)
+                bufDS4BT[76] = UInt8((crc >> 16) & 0xFF); bufDS4BT[77] = UInt8((crc >> 24) & 0xFF)
                 IOHIDDeviceSetReport(d.dev, kIOHIDReportTypeOutput, 0x11, bufDS4BT, bufDS4BT.count)
             }
         }

@@ -937,6 +937,9 @@ struct ContentView: View {
 
     @State private var pendingGroupPresetIDs: [UUID] = []
 
+    /// Whether the welcome screen's release-notes popover is open.
+    @State private var showWelcomeChangelog = false
+
     @ViewBuilder
     private func newGroupSheet(for preset: Preset) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1367,8 +1370,44 @@ struct ContentView: View {
                 VStack(spacing: 10) {
                     ControllerGlyph(height: 42)
                         .foregroundStyle(.tertiary)
-                    Text("Welcome to InputConfig")
-                        .font(.title2.weight(.semibold))
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("Welcome to InputConfig")
+                            .font(.title2.weight(.semibold))
+                        // Small grey version on the same line, which doubles
+                        // as the release-notes button (same pattern as the
+                        // sibling app's home header).
+                        Button { showWelcomeChangelog = true } label: {
+                            Text(Changelog.currentVersion)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("What's new in this version")
+                        .accessibilityLabel("Version \(Changelog.currentVersion), what's new")
+                        .popover(isPresented: $showWelcomeChangelog, arrowEdge: .bottom) {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    Text("What's new").font(.headline)
+                                    ForEach(Changelog.entries) { entry in
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(entry.version)
+                                                .font(.subheadline.weight(.semibold))
+                                            ForEach(entry.points, id: \.self) { point in
+                                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                                    Text("\u{2022}").foregroundStyle(.secondary)
+                                                    Text(point).font(.callout)
+                                                        .fixedSize(horizontal: false, vertical: true)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                .padding(16)
+                                .frame(width: 380, alignment: .leading)
+                            }
+                            .frame(maxHeight: 460)
+                        }
+                    }
                     Text("Control your Mac with a game controller or any input device. An accessible way to map controllers, keyboards, and mice to keyboard, mouse, MIDI, and more.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

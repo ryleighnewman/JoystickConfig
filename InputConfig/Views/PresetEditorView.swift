@@ -739,6 +739,7 @@ struct PresetEditorView: View {
         case .extMouse:        return 8
         case .cursorRegion:    return 9
         case .stickRegion:     return 10
+        case .midi:            return 11
         }
     }
 

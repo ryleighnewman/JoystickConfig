@@ -454,6 +454,13 @@ class GameControllerService: ObservableObject {
         // matching slot's ControllerState below.
         DualSenseSupplementService.shared.start()
 
+        // MIDI input. Opens one CoreMIDI client and connects to every
+        // source, so a MIDI keyboard / pad controller is bindable the
+        // same way a gamepad is. Started here rather than lazily so the
+        // binding editor can list devices and Scan can capture a key
+        // press without the user first activating a MIDI preset.
+        MIDIInputService.shared.start()
+
         // Open the in-process LED writer up front so focus-change
         // re-asserts and the RGB cycle can write instantly, without
         // spawning the helper subprocess. It's re-enumerated on each
@@ -653,6 +660,7 @@ class GameControllerService: ObservableObject {
         // With no controller left, stop hammering the LED so we don't spin the
         // re-assert timer for nothing.
         if connectedControllers.isEmpty { InProcessLightWriter.shared.stopHold() }
+
     }
 
     private func buildControllerInfo(_ controller: GCController) -> ControllerInfo {
@@ -1080,7 +1088,15 @@ class GameControllerService: ObservableObject {
         let g = UInt8(min(max(green * scale * 255, 0), 255))
         let b = UInt8(min(max(blue * scale * 255, 0), 255))
         lastAppliedColor[index] = (r, g, b)
-        InProcessLightWriter.shared.write(red: r, green: g, blue: b)
+        // HOLD the color, don't fire one shot. macOS's controller daemon owns
+        // the DualSense light bar and repaints it on its own loop, so a single
+        // write is overwritten within milliseconds and the user sees nothing
+        // change when a preset with a light-bar override activates. The general
+        // light path (applyLight) already holds for exactly this reason; the
+        // per-preset override was the one path still doing a bare write.
+        // stopHold happens on revert via setControllerLight, and when the last
+        // controller disconnects.
+        InProcessLightWriter.shared.startHold(red: r, green: g, blue: b)
     }
 
     /// Apply the light color in-process via the shared LED writer, scaling by
@@ -1128,11 +1144,20 @@ class GameControllerService: ObservableObject {
         }
         motionScanTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+
+        // MIDI devices join the same Scan flow: press a key, twist a
+        // knob, or move the bend wheel and it is captured like any
+        // button. Opens the input port on demand so users who never
+        // touch MIDI never pay for a CoreMIDI client.
+        MIDIInputService.shared.startScanning { [weak self] event in
+            Task { @MainActor in self?.scanCallback?(event) }
+        }
     }
 
     func stopScanning() {
         isScanning = false
         scanCallback = nil
+        MIDIInputService.shared.stopScanning()
         motionScanTimer?.invalidate()
         motionScanTimer = nil
         motionScanFiredThisGesture = false

@@ -53,6 +53,15 @@ final class DualSenseSupplementService: @unchecked Sendable {
     private var supplementalState: [UInt64: [Int: Float]] = [:]
     private var lastLoggedByte11: [UInt64: UInt8] = [:]
     private var reportCounter: [UInt64: Int] = [:]
+    /// Timestamp of the last streamed (callback-delivered) input report per
+    /// device. The poll timer stands down while the stream is alive.
+    private var lastStreamAt: [UInt64: TimeInterval] = [:]
+    /// GET_REPORT poll timer, running while any DualSense is attached.
+    private var pollTimer: DispatchSourceTimer?
+    /// Location-report keys whose first poll result has been logged.
+    private var pollHealthLogged: Set<String> = []
+    private var pollTickCount: Int = 0
+    private let pollQueue = DispatchQueue(label: "com.inputconfig.dsedgepoll")
     /// Last-seen bytes 8-49 EXCLUDING known counter slots so we log
     /// any change that could be the Edge's paddle/FN bits without
     /// also logging every counter increment 250×/sec.
@@ -63,26 +72,27 @@ final class DualSenseSupplementService: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    /// Defer to TouchpadHelper as the canonical reader of DualSense
-    /// raw HID. When TouchpadHelper retains the device (which it does
-    /// whenever the live visualizer is on screen or a touchpad-using
-    /// preset is active), our parallel IOHIDDevice open appears to
-    /// starve the helper of input reports on some macOS versions -
-    /// the user sees the touchpad swipe trail go dead. To avoid that
-    /// regression we skip starting our own device handle entirely;
-    /// the proper long-term fix is to push PS/mute parsing INTO
-    /// TouchpadHelper and consume the bits via TouchpadService.
+    /// Open the DualSense raw HID device in-process, non-seize, alongside
+    /// gamecontrollerd. This is the only route to the Edge's extra buttons
+    /// on modern macOS: Apple's GameController profile for the DualSense
+    /// Edge exposes NO paddle / FN / mute buttons (verified against the
+    /// live profile dump - standard buttons + touchpad + Home only, and
+    /// the leftPaddleButton-style KVC keys are absent).
+    ///
+    /// Both transports deliver input reports to this in-process reader,
+    /// sandbox included - verified live over Bluetooth (0x31 reports,
+    /// FN presses decoded) and historically over USB (PS/mute). A BT
+    /// connection can occasionally wedge into delivering no reports
+    /// (power-cycling the controller clears it); the GET_REPORT poll
+    /// below covers that case, so the extras keep working regardless.
+    ///
+    /// The old conflict that parked this service (starving TouchpadHelper's
+    /// touchpad feed) is moot: on macOS 14+ TouchpadService never launches
+    /// the helper (GameController's touchpadPrimary bridge is the touch
+    /// source) and the app's deployment target is 14.0.
     func start() {
-        // PS/mute bridging is being moved into TouchpadHelper so a
-        // single process holds the DualSense device handle - having
-        // both us AND the helper open the same device in non-seize
-        // mode caused the touchpad swipe trail to die for the user.
-        // While that move is in flight, leave this service dormant.
-        // `supplementalState` stays empty and `anySupplementalButtons()`
-        // returns []; the merge in GameControllerService.readControllerState
-        // is a no-op when the dictionary is empty.
-        let enableLegacyOpen = false
-        NSLog("[DualSenseSupplement] start() - device open deferred; TouchpadHelper now owns DualSense raw HID")
+        let enableLegacyOpen = true
+        NSLog("[DualSenseSupplement] start() - opening DualSense raw HID (USB extras reader)")
 
         if enableLegacyOpen {
             lock.lock()
@@ -132,8 +142,12 @@ final class DualSenseSupplementService: @unchecked Sendable {
         reportBuffers.removeAll()
         supplementalState.removeAll()
         lastLoggedByte11.removeAll()
+        lastStreamAt.removeAll()
+        let poll = pollTimer
+        pollTimer = nil
         manager = nil
         lock.unlock()
+        poll?.cancel()
 
         for (_, device) in devices {
             IOHIDDeviceUnscheduleFromRunLoop(device,
@@ -193,6 +207,7 @@ final class DualSenseSupplementService: @unchecked Sendable {
 
         let productName = (IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String) ?? "?"
         NSLog("[DualSenseSupplement] attached %@ (loc=0x%llX)", productName, location)
+        startPollingIfNeeded()
         // Note: we previously tried sending feature / output reports
         // to "unlock" the DualSense Edge's paddle/FN bits in the
         // input report. Empirically verified that no candidate
@@ -221,6 +236,10 @@ final class DualSenseSupplementService: @unchecked Sendable {
             IOHIDDeviceClose(dev, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         if let buf { buf.deallocate() }
+        lock.lock()
+        lastStreamAt.removeValue(forKey: location)
+        lock.unlock()
+        stopPollingIfIdle()
         NSLog("[DualSenseSupplement] detached (loc=0x%llX)", location)
     }
 
@@ -240,6 +259,17 @@ final class DualSenseSupplementService: @unchecked Sendable {
                       reportPointer: UnsafePointer<UInt8>,
                       length: Int) {
         guard length >= 11 else { return }
+
+        // Mark the stream alive so the GET_REPORT poll stands down for
+        // this device (streamed reports are lower-latency than polling).
+        lock.lock()
+        let firstStream = (lastStreamAt[locationID] == nil)
+        lastStreamAt[locationID] = CFAbsoluteTimeGetCurrent()
+        lock.unlock()
+        if firstStream {
+            NSLog("[DualSenseSupplement] stream ALIVE (loc=0x%llX) first report id=0x%02X len=%d",
+                  locationID, reportPointer[0], length)
+        }
 
         // Diagnostics. Capture button-candidate bytes 8-15 and
         // bytes 30-49 (where community-documented Edge profile bytes
@@ -285,38 +315,169 @@ final class DualSenseSupplementService: @unchecked Sendable {
             }
         }
 
-        // Only handle the standard USB report ID. Bluetooth wraps in
-        // 0x31 with an offset header and we don't parse that here.
-        guard reportPointer[0] == 0x01 else { return }
+        // buttons[2] of the report payload carries PS/Home (bit 0),
+        // touchpad press (bit 1), Mute (bit 2), and on the DualSense
+        // Edge the four extra hardware buttons in the high nibble.
+        // The IOHID input buffer includes the report ID at [0], so:
+        //   USB report 0x01: payload starts at [1], buttons[2] = [10].
+        //     (PS at [10] bit 0 was verified over 16+ press/release
+        //     transitions in a live USB stream.)
+        //   BT report 0x31: ID at [0], sequence tag at [1], payload at
+        //     [2], buttons[2] = [11]. Verified live over Bluetooth:
+        //     an Edge FN press flips [11] bit 4 while the sticks sit at
+        //     [2..5] and the d-pad hat idles as 0x08 at [9]. BT reports
+        //     DO reach this second non-seize reader alongside the
+        //     system daemon; a connection can wedge into delivering
+        //     nothing (power-cycling the controller clears it), which
+        //     is where the old "Bluetooth gives zero reports" belief
+        //     came from.
+        let b2: UInt8
+        if reportPointer[0] == 0x01 {
+            b2 = reportPointer[10]
+        } else if reportPointer[0] == 0x31 && length >= 12 {
+            b2 = reportPointer[11]
+        } else {
+            return
+        }
+        applyButtons2(b2, locationID: locationID)
+    }
 
-        // Byte 10 carries PS/Home, Touchpad press, and Mute as three
-        // bits. The PS bit was empirically verified at bit 0 by
-        // observing 16+ press/release transitions in the user's USB
-        // stream. Mute is documented at bit 2 in the standard
-        // DualSense layout.
-        let byte10 = reportPointer[10]
-        let psDown = (byte10 & 0x01) != 0
-        let muteDown = (byte10 & 0x04) != 0
+    /// Sentinel location key for the TouchpadHelper-fed state, so it can
+    /// coexist in `supplementalState` with any direct in-process reads.
+    private static let helperLocationKey: UInt64 = .max
 
-        // DualSense Edge paddles + FN buttons are NOT present in the
-        // standard USB input report - the controller's firmware
-        // internally remaps them to face buttons / shoulders before
-        // transmission. Empirically verified by pressing each Edge
-        // accessory and observing zero byte changes anywhere in the
-        // report. Unlocking the Edge's extended profile mode would
-        // require an undocumented feature-report command we don't
-        // have. Users should configure paddle mapping via the Edge's
-        // built-in profile editor on PS5 instead.
+    /// Entry point for the helper's "B" lines (via TouchpadService). Over
+    /// Bluetooth the app's own HID open receives no input reports while its
+    /// GameController session is active, but the external helper process
+    /// does - so this is how the Edge extras arrive on BT.
+    func ingestHelperButtons2(_ b2: UInt8) {
+        applyButtons2(b2, locationID: Self.helperLocationKey)
+    }
+
+    /// Decode one buttons[2] byte into the supplemental button snapshot.
+    private func applyButtons2(_ b2: UInt8, locationID: UInt64) {
+        let psDown   = (b2 & 0x01) != 0
+        let muteDown = (b2 & 0x04) != 0
+        // DualSense Edge extras, per the Linux hid-playstation driver
+        // and DS4Windows (same byte as PS/mute, high nibble):
+        //   bit 4 = left function (FN), bit 5 = right function (FN),
+        //   bit 6 = left paddle,        bit 7 = right paddle.
+        let fnLeft   = (b2 & 0x10) != 0
+        let fnRight  = (b2 & 0x20) != 0
+        let lPaddle  = (b2 & 0x40) != 0
+        let rPaddle  = (b2 & 0x80) != 0
+
         var snapshot: [Int: Float] = [:]
         // Index 10 = Home/PS - merging here lets us fire the binding
         // even when Apple's GameController framework swallows the PS
         // event for system-level Game Mode handling on macOS 26+.
-        snapshot[10]                              = psDown   ? 1.0 : 0.0
-        snapshot[SupplementButton.mute.rawValue]  = muteDown ? 1.0 : 0.0
+        snapshot[10]                                       = psDown   ? 1.0 : 0.0
+        snapshot[SupplementButton.mute.rawValue]           = muteDown ? 1.0 : 0.0
+        snapshot[SupplementButton.leftFunction.rawValue]   = fnLeft   ? 1.0 : 0.0
+        snapshot[SupplementButton.rightFunction.rawValue]  = fnRight  ? 1.0 : 0.0
+        snapshot[SupplementButton.leftPaddle.rawValue]     = lPaddle  ? 1.0 : 0.0
+        snapshot[SupplementButton.rightPaddle.rawValue]    = rPaddle  ? 1.0 : 0.0
 
         lock.lock()
+        let changed = (supplementalState[locationID] != snapshot)
         supplementalState[locationID] = snapshot
         lock.unlock()
+
+        // Change-gated diagnostic. Fires only on press/release edges of
+        // the supplement buttons (a handful of events per session), so
+        // it stays silent during the 130-250 Hz report stream while
+        // giving `log stream` visibility into exactly which raw bits
+        // the controller sends - the tool that finally mapped the Edge.
+        if changed && b2 != 0 {
+            NSLog("[DualSenseSupplement] buttons2=0x%02X ps=%d mute=%d fnL=%d fnR=%d padL=%d padR=%d",
+                  b2, psDown ? 1 : 0, muteDown ? 1 : 0, fnLeft ? 1 : 0,
+                  fnRight ? 1 : 0, lPaddle ? 1 : 0, rPaddle ? 1 : 0)
+        }
+    }
+
+    // MARK: - GET_REPORT polling (the Bluetooth path)
+
+    /// Poll the current input report with a synchronous GET_REPORT device
+    /// request. Over Bluetooth the sandbox delivers NO streamed input
+    /// reports to this app (or to its sandboxed helper) - but device
+    /// requests go through: SetReport drives the light bar over BT today,
+    /// and GetReport was verified live to return fresh 78-byte 0x31
+    /// snapshots (the embedded counter advances between polls). 30 Hz gives
+    /// worst-case ~33 ms latency on paddle presses, in line with a 30 Hz
+    /// UI poll frame. The timer stands down per-device whenever streamed
+    /// reports are flowing (USB), so the poll only pays for itself when it
+    /// is the only source.
+    private func startPollingIfNeeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard pollTimer == nil, !liveDevices.isEmpty else { return }
+        let t = DispatchSource.makeTimerSource(queue: pollQueue)
+        t.schedule(deadline: .now() + .milliseconds(33),
+                   repeating: .milliseconds(33),
+                   leeway: .milliseconds(8))
+        t.setEventHandler { [weak self] in self?.pollTick() }
+        pollTimer = t
+        t.resume()
+        NSLog("[DualSenseSupplement] GET_REPORT poll started (30 Hz)")
+    }
+
+    private func stopPollingIfIdle() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard liveDevices.isEmpty, let t = pollTimer else { return }
+        pollTimer = nil
+        t.cancel()
+        NSLog("[DualSenseSupplement] GET_REPORT poll stopped")
+    }
+
+    private func pollTick() {
+        lock.lock()
+        let targets = liveDevices.filter { (loc, _) in
+            // Stand down while streamed reports are arriving for this device.
+            (CFAbsoluteTimeGetCurrent() - (lastStreamAt[loc] ?? 0)) > 1.0
+        }
+        pollTickCount += 1
+        let tick = pollTickCount
+        let liveCount = liveDevices.count
+        let streamStamps = lastStreamAt.count
+        lock.unlock()
+        if tick == 1 || (Self.logRawBytes && tick % 150 == 0) {
+            NSLog("[DualSenseSupplement] tick=%d live=%d targets=%d streamStamped=%d",
+                  tick, liveCount, targets.count, streamStamps)
+        }
+        guard !targets.isEmpty else { return }
+
+        var buf = [UInt8](repeating: 0, count: 96)
+        for (location, device) in targets {
+            // Try the full BT report first, then the USB/simple report.
+            for rid: CFIndex in [0x31, 0x01] {
+                var len: CFIndex = buf.count
+                let gr = IOHIDDeviceGetReport(device, kIOHIDReportTypeInput, rid, &buf, &len)
+                // One-shot health line so a silent poll is distinguishable
+                // from a working poll with no buttons pressed.
+                lock.lock()
+                let firstForKey = !pollHealthLogged.contains("\(location)-\(rid)")
+                if firstForKey { pollHealthLogged.insert("\(location)-\(rid)") }
+                lock.unlock()
+                if firstForKey {
+                    NSLog("[DualSenseSupplement] poll id=0x%02lX -> %@ len=%ld", rid,
+                          gr == kIOReturnSuccess ? "ok" : String(format: "0x%08X", UInt32(bitPattern: gr)), len)
+                }
+                guard gr == kIOReturnSuccess, len > 11 else { continue }
+                // GetReport buffers carry the same layout as the streamed
+                // callback buffer: report ID at [0].
+                let b2: UInt8
+                if buf[0] == 0x31 {
+                    b2 = buf[11]
+                } else if buf[0] == 0x01 && len > 10 {
+                    b2 = buf[10]
+                } else {
+                    continue
+                }
+                applyButtons2(b2, locationID: location)
+                break
+            }
+        }
     }
 
     // MARK: - Lookup helpers

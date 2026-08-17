@@ -30,6 +30,8 @@ enum HelpGuideLibrary {
         connectingControllers,
         builtInExamples,
         presetGroups,
+        dualSenseEdge,
+        midiInput,
         switchProController,
         joyConSetup,
         stadiaController,
@@ -49,6 +51,66 @@ enum HelpGuideLibrary {
     ]
 
     // MARK: - Guides
+
+    static let midiInput = HelpGuide(
+        id: "midi-input",
+        title: "MIDI Devices as Input",
+        category: "Controller setup",
+        summary: "Use a MIDI keyboard, pad controller, or knob box to drive your Mac: bind notes, pads, knobs, the pitch wheel, and the sustain pedal to keys, clicks, macros, or anything else.",
+        sections: [
+            HelpSection(
+                heading: "Getting started",
+                body: "Connect your MIDI device over USB or Bluetooth MIDI. InputConfig finds it automatically, with no setup and no drivers. Then open a preset, add a binding, set its input type to MIDI, and press Scan: play a key, twist a knob, or move the pitch wheel and it is captured."
+            ),
+            HelpSection(
+                heading: "What you can bind",
+                steps: [
+                    "Notes and pads behave like buttons: the binding is held while the key is down.",
+                    "Control Change knobs, sliders, and pedals fire once they pass the halfway point, so a sustain pedal works as an on/off switch.",
+                    "The pitch wheel is centre-resting, so bind it in the plus or minus direction like a joystick axis.",
+                    "Aftertouch fires when you press harder into a held key.",
+                    "Program Change fires once each time the patch changes.",
+                ]
+            ),
+            HelpSection(
+                heading: "Channels and devices",
+                body: "Every binding defaults to any channel and any device, which is what most people want: your preset keeps working when you plug in a different keyboard. Pick a specific channel when a device sends on several at once, for example splitting a keyboard so the lower octaves control your Mac and the rest still plays your music software."
+            ),
+            HelpSection(
+                heading: "Sending MIDI as well",
+                body: "This is the reverse of the MIDI outputs InputConfig already sends. You can use both at once: map a controller button to a MIDI note going out to your music app, and a knob on your MIDI keyboard to a keyboard shortcut coming in. InputConfig never listens to its own output port, so the two cannot loop back into each other."
+            ),
+        ]
+    )
+
+    static let dualSenseEdge = HelpGuide(
+        id: "dualsense-edge",
+        title: "DualSense Edge Extra Buttons",
+        category: "Controller setup",
+        summary: "The Edge's back paddles, FN buttons, and mute button are bindable like any other input, over Bluetooth or USB-C.",
+        sections: [
+            HelpSection(
+                heading: "How it works",
+                body: "Apple's controller framework does not report the Edge's extra buttons, so InputConfig reads them straight from the controller's data stream alongside the normal inputs. This works on both Bluetooth and USB."
+            ),
+            HelpSection(
+                heading: "Binding them",
+                steps: [
+                    "Open a preset, add a binding, and press Scan, then press a paddle or FN button.",
+                    "Or watch the Live Visualizer: the extra buttons appear as chips that light up when pressed.",
+                    "Left Paddle is button 16, Right Paddle 17, FN left 20, FN right 21, Mute 15."
+                ]
+            ),
+            HelpSection(
+                heading: "If the extra buttons stop responding",
+                body: "A long-lived Bluetooth session can occasionally wedge into a state where the extra buttons go quiet even though sticks and face buttons still work. Power the controller off and on (hold the PS button to turn it off) and they come back. Remember the paddles are detachable: an empty rear socket reports nothing."
+            ),
+            HelpSection(
+                heading: "Paddle assignments on the controller",
+                body: "If you assigned the paddles to mirror other buttons using Sony's own profile tool on a PS5, the controller sends both the mirrored button and the paddle bit. Unassigned paddles still report presses to InputConfig, so you can bind them even when they do nothing in other software."
+            ),
+        ]
+    )
 
     static let oneStickDriving = HelpGuide(
         id: "one-stick-driving",

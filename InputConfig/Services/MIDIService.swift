@@ -338,3 +338,354 @@ final class MIDIService: @unchecked Sendable {
         (0...127).map { n in (n, "\(noteName(n)) (\(n))") }
     }()
 }
+
+// MARK: - MIDI Input
+
+/// Reads incoming MIDI from every connected device and publishes it as
+/// bindable state, so a MIDI keyboard, pad controller, or knob box can
+/// drive keyboard / mouse / macro outputs the same way a gamepad does.
+/// This is the mirror image of `MIDIService`, which SENDS MIDI.
+///
+/// Design notes:
+///   - One CoreMIDI client + one input port, connected to every source.
+///     Sources that appear or disappear are picked up by a setup-changed
+///     notification, so hot-plugging a keyboard just works.
+///   - State is polled by MappingEngine, not pushed, matching how every
+///     other input source in the app behaves. Notes are held until note
+///     off; CC / bend / aftertouch keep their last value.
+///   - `@unchecked Sendable` with a single NSLock, following the
+///     established pattern for services whose C callbacks fire off the
+///     main actor (see DualSenseSupplementService / SteamControllerService).
+final class MIDIInputService: @unchecked Sendable {
+
+    nonisolated(unsafe) static let shared = MIDIInputService()
+
+    /// Identifies one connected MIDI source.
+    struct Device: Identifiable, Hashable {
+        /// CoreMIDI unique ID, stringified. Stable across replug for most
+        /// hardware, which is what makes it usable as a binding filter.
+        let id: String
+        let name: String
+    }
+
+    // MARK: State (lock-guarded)
+
+    private let lock = NSLock()
+    private var client: MIDIClientRef = 0
+    private var inputPort: MIDIPortRef = 0
+    private var isSetup = false
+
+    /// deviceID -> channel(1-16) -> note numbers currently held down.
+    private var notesDown: [String: [Int: Set<Int>]] = [:]
+    /// deviceID -> channel -> cc number -> last value (0-127).
+    private var ccValues: [String: [Int: [Int: Int]]] = [:]
+    /// deviceID -> channel -> last pitch bend, normalized -1...1.
+    private var pitchBend: [String: [Int: Float]] = [:]
+    /// deviceID -> channel -> last channel aftertouch (0-127).
+    private var aftertouch: [String: [Int: Int]] = [:]
+    /// deviceID -> channel -> program numbers seen since the last poll.
+    /// Program Change is momentary, so these are consumed by the engine.
+    private var programHits: [String: [Int: Set<Int>]] = [:]
+    /// Connected sources, for the UI's device picker.
+    private var devices: [Device] = []
+
+    /// Fired on the main actor for every recognised message while a scan
+    /// is active, so the binding editor's Scan button can capture MIDI.
+    private var scanHandler: ((InputEvent) -> Void)?
+
+    private init() {}
+
+    // MARK: Lifecycle
+
+    /// Open the client and connect to every current source. Safe to call
+    /// repeatedly; later calls just re-scan for new devices.
+    func start() {
+        lock.lock()
+        let already = isSetup
+        lock.unlock()
+        if already { connectAllSources(); return }
+
+        var newClient: MIDIClientRef = 0
+        let status = MIDIClientCreateWithBlock("InputConfig Input" as CFString, &newClient) { [weak self] notification in
+            // Devices came or went: re-scan. The notification pointer is
+            // only valid inside this block, and we only care that
+            // *something* changed, so no payload parsing is needed.
+            if notification.pointee.messageID == .msgSetupChanged {
+                self?.connectAllSources()
+            }
+        }
+        guard status == noErr else {
+            NSLog("[MIDIInput] MIDIClientCreate failed: %d", status)
+            return
+        }
+
+        var port: MIDIPortRef = 0
+        let portStatus = MIDIInputPortCreateWithProtocol(
+            newClient, "InputConfig In" as CFString, ._1_0, &port
+        ) { [weak self] eventList, srcConnRefCon in
+            // srcConnRefCon is the source's CoreMIDI unique ID, packed at
+            // connect time, so we know which keyboard sent this without a
+            // property lookup per message.
+            let deviceID: String
+            if let refCon = srcConnRefCon {
+                deviceID = String(Int32(truncatingIfNeeded: Int(bitPattern: refCon)))
+            } else {
+                deviceID = "any"
+            }
+            self?.handle(eventList, deviceID: deviceID)
+        }
+        guard portStatus == noErr else {
+            NSLog("[MIDIInput] MIDIInputPortCreate failed: %d", portStatus)
+            MIDIClientDispose(newClient)
+            return
+        }
+
+        lock.lock()
+        client = newClient
+        inputPort = port
+        isSetup = true
+        lock.unlock()
+
+        connectAllSources()
+        NSLog("[MIDIInput] started")
+    }
+
+    func stop() {
+        lock.lock()
+        let c = client, p = inputPort
+        client = 0; inputPort = 0; isSetup = false
+        notesDown.removeAll(); ccValues.removeAll(); pitchBend.removeAll()
+        aftertouch.removeAll(); programHits.removeAll(); devices.removeAll()
+        lock.unlock()
+        if p != 0 { MIDIPortDispose(p) }
+        if c != 0 { MIDIClientDispose(c) }
+    }
+
+    /// Connect the input port to every MIDI source currently present,
+    /// skipping our own virtual output port so the app can't hear itself.
+    private func connectAllSources() {
+        lock.lock()
+        let port = inputPort
+        lock.unlock()
+        guard port != 0 else { return }
+
+        var found: [Device] = []
+        for i in 0..<MIDIGetNumberOfSources() {
+            let src = MIDIGetSource(i)
+            guard src != 0 else { continue }
+            let name = Self.endpointName(src)
+            // Never connect to our own virtual source, or MIDI we send
+            // would loop straight back in as input.
+            if name == MIDIService.portName { continue }
+
+            var uid: Int32 = 0
+            MIDIObjectGetIntegerProperty(src, kMIDIPropertyUniqueID, &uid)
+            let deviceID = String(uid)
+            found.append(Device(id: deviceID, name: name))
+
+            // Pass the endpoint's unique ID as the connection refCon so
+            // the read block knows which device a packet came from
+            // without another property lookup per message.
+            let refCon = UnsafeMutableRawPointer(bitPattern: UInt(bitPattern: Int(uid)))
+            MIDIPortConnectSource(port, src, refCon)
+        }
+
+        lock.lock()
+        devices = found
+        lock.unlock()
+    }
+
+    private static func endpointName(_ endpoint: MIDIEndpointRef) -> String {
+        var cf: Unmanaged<CFString>?
+        if MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName, &cf) == noErr,
+           let name = cf?.takeRetainedValue() as String? {
+            return name
+        }
+        return "MIDI Device"
+    }
+
+    // MARK: Message handling
+
+    private func handle(_ eventList: UnsafePointer<MIDIEventList>, deviceID: String) {
+        // Attribute every word in this callback to its source. The port
+        // callback is serial per connection, so a stored property is safe
+        // and avoids threading the ID through the UMP decode.
+        currentPacketDevice = deviceID
+        // Universal MIDI Packet words. We only decode MIDI 1.0 channel
+        // voice messages (message type 0x2), which is what every class
+        // compliant controller sends over a 1.0 protocol port.
+        let list = eventList.pointee
+        var packet = list.packet
+        for _ in 0..<list.numPackets {
+            withUnsafePointer(to: packet.words) { tuplePtr in
+                tuplePtr.withMemoryRebound(to: UInt32.self, capacity: Int(packet.wordCount)) { words in
+                    for w in 0..<Int(packet.wordCount) {
+                        decodeUMP(words[w])
+                    }
+                }
+            }
+            packet = MIDIEventPacketNext(&packet).pointee
+        }
+    }
+
+    /// Decode one 32-bit Universal MIDI Packet word carrying a MIDI 1.0
+    /// channel voice message.
+    private func decodeUMP(_ word: UInt32) {
+        let messageType = UInt8((word >> 28) & 0xF)
+        guard messageType == 0x2 else { return }   // MIDI 1.0 channel voice
+        let status = UInt8((word >> 20) & 0xF)     // high nibble of status
+        let channel = Int((word >> 16) & 0xF) + 1  // 1-16 for humans
+        let data1 = Int((word >> 8) & 0x7F)
+        let data2 = Int(word & 0x7F)
+        // Device attribution: the read block gives us the source refCon,
+        // but UMP decoding happens per word, so we resolve the device at
+        // ingest time in `handle`. Falling back to "any" keeps bindings
+        // with no device filter working.
+        applyMessage(status: status, channel: channel,
+                     data1: data1, data2: data2, deviceID: currentPacketDevice)
+    }
+
+    /// Device the packet currently being decoded arrived from. Set by the
+    /// read block before decoding; single-threaded per port callback.
+    private var currentPacketDevice: String = "any"
+
+    private func applyMessage(status: UInt8, channel: Int,
+                              data1: Int, data2: Int, deviceID: String) {
+        var scanEvent: InputEvent?
+
+        lock.lock()
+        switch status {
+        case 0x9 where data2 > 0:   // note on with velocity
+            notesDown[deviceID, default: [:]][channel, default: []].insert(data1)
+            scanEvent = .midi(.note, number: data1, channel: channel, deviceID: deviceID)
+        case 0x8, 0x9:              // note off (or note on, velocity 0)
+            notesDown[deviceID, default: [:]][channel, default: []].remove(data1)
+        case 0xB:                   // control change
+            ccValues[deviceID, default: [:]][channel, default: [:]][data1] = data2
+            // Only offer a knob to Scan once it's moved meaningfully, so
+            // idle controllers streaming zeros don't hijack the capture.
+            if data2 > 0 {
+                scanEvent = .midi(.cc, number: data1, channel: channel, deviceID: deviceID)
+            }
+        case 0xE:                   // pitch bend: 14-bit, centre 8192
+            let raw = (data2 << 7) | data1
+            pitchBend[deviceID, default: [:]][channel] = Float(raw - 8192) / 8192.0
+            if abs(raw - 8192) > 2048 {
+                scanEvent = .midi(.pitchBend, number: 0, channel: channel, deviceID: deviceID)
+            }
+        case 0xD:                   // channel aftertouch
+            aftertouch[deviceID, default: [:]][channel] = data1
+        case 0xC:                   // program change
+            programHits[deviceID, default: [:]][channel, default: []].insert(data1)
+            scanEvent = .midi(.programChange, number: data1, channel: channel, deviceID: deviceID)
+        default:
+            break
+        }
+        let handler = scanHandler
+        lock.unlock()
+
+
+        if let handler, let scanEvent {
+            DispatchQueue.main.async { handler(scanEvent) }
+        }
+    }
+
+    // MARK: Queries used by MappingEngine
+
+    /// True while the given note is held. `channel`/`device` nil = any.
+    func isNoteDown(_ note: Int, channel: Int?, deviceID: String?) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        for (dev, byChannel) in notesDown where deviceID == nil || dev == deviceID {
+            for (ch, notes) in byChannel where channel == nil || ch == channel {
+                if notes.contains(note) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Last CC value 0-127, or nil if that CC has not been seen.
+    func ccValue(_ cc: Int, channel: Int?, deviceID: String?) -> Int? {
+        lock.lock(); defer { lock.unlock() }
+        var best: Int?
+        for (dev, byChannel) in ccValues where deviceID == nil || dev == deviceID {
+            for (ch, ccs) in byChannel where channel == nil || ch == channel {
+                if let v = ccs[cc] { best = max(best ?? 0, v) }
+            }
+        }
+        return best
+    }
+
+    /// Last pitch bend, normalized -1...1 (0 = centre).
+    func pitchBendValue(channel: Int?, deviceID: String?) -> Float {
+        lock.lock(); defer { lock.unlock() }
+        var out: Float = 0
+        for (dev, byChannel) in pitchBend where deviceID == nil || dev == deviceID {
+            for (ch, v) in byChannel where channel == nil || ch == channel {
+                if abs(v) > abs(out) { out = v }
+            }
+        }
+        return out
+    }
+
+    /// Last channel aftertouch 0-127.
+    func aftertouchValue(channel: Int?, deviceID: String?) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        var out = 0
+        for (dev, byChannel) in aftertouch where deviceID == nil || dev == deviceID {
+            for (ch, v) in byChannel where channel == nil || ch == channel {
+                out = max(out, v)
+            }
+        }
+        return out
+    }
+
+    /// Whether the given program change arrived since the last call, and
+    /// clears it. Program Change is momentary, so it is consumed: the
+    /// binding fires for exactly one poll frame.
+    func consumeProgramChange(_ program: Int, channel: Int?, deviceID: String?) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        var hit = false
+        for (dev, byChannel) in programHits where deviceID == nil || dev == deviceID {
+            for (ch, programs) in byChannel where channel == nil || ch == channel {
+                if programs.contains(program) {
+                    hit = true
+                    programHits[dev]?[ch]?.remove(program)
+                }
+            }
+        }
+        return hit
+    }
+
+    /// Every MIDI source currently connected, for the editor's picker.
+    func connectedDevices() -> [Device] {
+        lock.lock(); defer { lock.unlock() }
+        return devices
+    }
+
+    /// True when at least one MIDI source (other than our own output
+    /// port) is connected. Drives the editor's "no MIDI device" hint.
+    var hasDevices: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !devices.isEmpty
+    }
+
+    // MARK: Scanning
+
+    func startScanning(_ handler: @escaping (InputEvent) -> Void) {
+        start()
+        lock.lock(); scanHandler = handler; lock.unlock()
+    }
+
+    func stopScanning() {
+        lock.lock(); scanHandler = nil; lock.unlock()
+    }
+
+    /// Release all held state. Called when the engine stops so a note
+    /// held at that moment can't leave a binding stuck on.
+    func releaseAll() {
+        lock.lock()
+        notesDown.removeAll()
+        programHits.removeAll()
+        lock.unlock()
+    }
+}

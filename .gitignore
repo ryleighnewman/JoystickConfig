@@ -36,8 +36,6 @@ SteamControllerHelper/SteamControllerHelper
 # Logs
 *.log
 
-# Claude Code local config
-.claude/
 # Release archive output
 build/
 # Marketing intermediates (only posters/ and README are published)

@@ -78,19 +78,21 @@ while entry != 0 {
         data[45] = r; data[46] = g; data[47] = b
         IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 0x02, data, data.count)
     } else if isDS && isBT {
-        // DualSense BT: report ID 0x31, 79 bytes total
-        var data = [UInt8](repeating: 0, count: 79)
-        data[0]  = 0x31  // report ID
+        // DualSense BT: 78-byte report - [0]=0x31, [1]=seq<<4, [2]=0x10 tag,
+        // USB payload at [3], CRC over [0..73] at [74..77]. Verified live.
+        var data = [UInt8](repeating: 0, count: 78)
+        data[0]  = 0x31
         sequenceTag = (sequenceTag &+ 1) & 0x0F
-        data[1]  = (sequenceTag << 4) | 0x02
-        data[2]  = 0x00; data[3] = 0x04
-        data[40] = 0x06; data[43] = 0x02
-        data[44] = brightness
-        data[46] = r; data[47] = g; data[48] = b
-        var crcIn: [UInt8] = [0xA2, 0x31] + Array(data[1..<75])
+        data[1]  = sequenceTag << 4
+        data[2]  = 0x10
+        data[4]  = 0x04
+        data[41] = 0x02; data[44] = 0x02
+        data[45] = brightness
+        data[47] = r; data[48] = g; data[49] = b
+        let crcIn: [UInt8] = [0xA2] + Array(data[0..<74])
         let crc = crc32(crcIn)
-        data[75] = UInt8(crc & 0xFF); data[76] = UInt8((crc >> 8) & 0xFF)
-        data[77] = UInt8((crc >> 16) & 0xFF); data[78] = UInt8((crc >> 24) & 0xFF)
+        data[74] = UInt8(crc & 0xFF); data[75] = UInt8((crc >> 8) & 0xFF)
+        data[76] = UInt8((crc >> 16) & 0xFF); data[77] = UInt8((crc >> 24) & 0xFF)
         IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 0x31, data, data.count)
     } else if isDS4 && !isBT {
         // DS4 USB: report ID 0x05, 32 bytes
@@ -99,14 +101,15 @@ while entry != 0 {
         data[6] = r; data[7] = g; data[8] = b
         IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 0x05, data, data.count)
     } else if isDS4 && isBT {
-        // DS4 BT: report ID 0x11, 79 bytes
-        var data = [UInt8](repeating: 0, count: 79)
-        data[0] = 0x11; data[1] = 0xC0; data[2] = 0x20; data[3] = 0xF3; data[4] = 0x04
-        data[7] = r; data[8] = g; data[9] = b
-        var crcIn: [UInt8] = [0xA2, 0x11] + Array(data[1..<75])
+        // DS4 BT: 78-byte report per DS4Windows / hid-sony; RGB at [8..10],
+        // CRC over [0..73] at [74..77].
+        var data = [UInt8](repeating: 0, count: 78)
+        data[0] = 0x11; data[1] = 0xC0; data[2] = 0xA0; data[3] = 0xF7; data[4] = 0x04
+        data[8] = r; data[9] = g; data[10] = b
+        let crcIn: [UInt8] = [0xA2] + Array(data[0..<74])
         let crc = crc32(crcIn)
-        data[75] = UInt8(crc & 0xFF); data[76] = UInt8((crc >> 8) & 0xFF)
-        data[77] = UInt8((crc >> 16) & 0xFF); data[78] = UInt8((crc >> 24) & 0xFF)
+        data[74] = UInt8(crc & 0xFF); data[75] = UInt8((crc >> 8) & 0xFF)
+        data[76] = UInt8((crc >> 16) & 0xFF); data[77] = UInt8((crc >> 24) & 0xFF)
         IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 0x11, data, data.count)
     }
 

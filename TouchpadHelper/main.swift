@@ -13,6 +13,17 @@
 ///     <f1Active> <f1Id> <f1X> <f1Y> \
 ///     <controller>
 ///
+/// Additionally, whenever the PS/mute/extras button byte (buttons[2] of the
+/// Sony report, which also carries the DualSense Edge paddle and FN bits in
+/// its high nibble) CHANGES, a line:
+///   B <buttons2decimal> <controller>
+/// With `--buttons-only`, T lines are suppressed and only B lines are
+/// emitted. The main app uses this mode on macOS 14+, where GameController
+/// provides touch data but the Edge extras are only visible to an external
+/// process reading the raw report (the app's own in-process HID open
+/// receives no Bluetooth input reports while its GameController session is
+/// active; this helper process does).
+///
 /// Where:
 ///   reportSeq        UInt64 monotonically increasing per device
 ///   touchpadButton   0/1 (touchpad pressed)
@@ -34,6 +45,7 @@ import IOKit.hid
 let sonyVID: Int32 = 0x054C
 let dualSensePIDs: Set<Int32> = [0x0CE6, 0x0DF2]   // DualSense + DualSense Edge
 let ds4PIDs: Set<Int32>       = [0x05C4, 0x09CC]
+let buttonsOnly = CommandLine.arguments.contains("--buttons-only")
 
 // MARK: - Helpers
 
@@ -59,6 +71,9 @@ final class DeviceCtx {
     /// Bluetooth DualSense needs a feature-get on 0x05 to flip into 0x31
     /// extended-report mode (which contains the touchpad bytes).
     var didEnableBTReports = false
+    /// Last buttons[2] value emitted on a B line, so we only emit on change.
+    var lastButtons2: UInt8 = 0
+    var emittedInitialButtons = false
 
     init(device: IOHIDDevice, pid: Int32, isBT: Bool, kind: String) {
         self.device = device
@@ -111,20 +126,37 @@ let inputCallback: IOHIDReportCallback = { context, _, _, reportType, reportID, 
     let buttonMask: UInt8 = 0x02     // touchpad-click bit for DS5; same bit for DS4 in correct byte
 
     if dualSensePIDs.contains(ctx.pid) {
+        // The IOHID buffer includes the report ID at [0]. The Sony payload
+        // (x,y,rx,ry,z,rz, seq, buttons[4], ...) follows the prefix:
+        //   USB 0x01: 1-byte prefix (ID)            -> buttons[2] = 10, touch = 33
+        //   BT  0x31: 2-byte prefix (ID + seq tag)  -> buttons[2] = 11, touch = 34
+        // Both verified live: PS flips [10] bit 0 on USB; an Edge FN press
+        // flips [11] bit 4 on BT while the d-pad hat idles as 0x08 at [9].
+        // (The previous USB buttonByte of 9 was buttons[1] - the shoulder
+        // byte - so the emitted touchpad-click flag was actually R1; and the
+        // previous BT touch offset of 35 produced X readings past the
+        // touchpad's 1919 maximum.)
         if !ctx.isBT {
-            // DualSense USB, report 0x01: per Linux hid-playstation.c the
-            // touchpad block (`struct ps_touch_point points[2]`) starts at
-            // byte 33 of the IOHID data buffer (the byte before it is the
-            // reserved `ucByte32` field, not the touchpad header).
             guard reportID == 0x01, reportLength >= 41 else { return }
             blockOffset = 33
-            buttonByte = 9
+            buttonByte = 10
         } else {
-            // DualSense BT, report 0x31: same layout plus 2-byte BT header.
             guard reportID == 0x31, reportLength >= 43 else { return }
-            blockOffset = 35
+            blockOffset = 34
             buttonByte = 11
         }
+        // Emit the extras byte on change. buttons[2]: PS bit 0, touchpad
+        // click bit 1, mute bit 2; DualSense Edge FN-L/FN-R/paddle-L/
+        // paddle-R at bits 4/5/6/7.
+        if reportLength > buttonByte {
+            let b2 = report[buttonByte]
+            if !ctx.emittedInitialButtons || b2 != ctx.lastButtons2 {
+                ctx.emittedInitialButtons = true
+                ctx.lastButtons2 = b2
+                emit("B \(b2) \(ctx.kind)")
+            }
+        }
+        if buttonsOnly { return }
     } else if ds4PIDs.contains(ctx.pid) {
         if !ctx.isBT {
             // DualShock 4 USB, report 0x01: per Linux hid-sony.c,

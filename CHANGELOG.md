@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2
+
+- MIDI devices can now be used as an input: bind notes, pads, knobs, the pitch
+  wheel, the sustain pedal, and aftertouch to keys, clicks, macros, or anything
+  else.
+- DualSense Edge extra buttons: the back paddles, both FN buttons, and mute are
+  now bindable like any other input, over Bluetooth and USB.
+- Light bar colors now work over Bluetooth: preset colors, the RGB cycle, and
+  brightness all reach the controller wirelessly.
+- New help guides for MIDI input and the DualSense Edge extra buttons.
+- A changelog you can read inside the app, from the welcome screen or About.
+- More reliable controller data reading behind the scenes, with an automatic
+  fallback when a Bluetooth session goes quiet.
+
+## 1.1.1
+
+- Fixes a crash that prevented InputConfig from launching on macOS 14 Sonoma.
+
 ## 1.1
 
 - 431 built-in presets, over 300 of them new: games, creative and productivity

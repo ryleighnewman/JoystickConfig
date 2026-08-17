@@ -979,6 +979,9 @@ struct SettingsView: View {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
 
+    /// Whether the About tab's changelog popover is open.
+    @State private var showChangelog = false
+
     private var aboutTab: some View {
         ScrollView {
             VStack(spacing: 22) {
@@ -1048,6 +1051,92 @@ struct SettingsView: View {
                         .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
                 )
 
+                // Changelog. Same card treatment as the sections above; the
+                // row opens a popover listing every version, newest first.
+                Button { showChangelog = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 22)
+                        Text("View Changelog")
+                            .font(.callout)
+                        Spacer(minLength: 0)
+                        Text(Changelog.currentVersion)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.right")
+                            .imageScale(.small)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.secondary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+                )
+                .popover(isPresented: $showChangelog, arrowEdge: .bottom) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("What's new").font(.headline)
+                            ForEach(Changelog.entries) { entry in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(entry.version).font(.subheadline.weight(.semibold))
+                                    ForEach(entry.points, id: \.self) { point in
+                                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                            Text("\u{2022}").foregroundStyle(.secondary)
+                                            Text(point).font(.callout)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .frame(width: 380, alignment: .leading)
+                    }
+                    .frame(maxHeight: 460)
+                }
+                .accessibilityLabel("View changelog, current version \(Changelog.currentVersion)")
+
+                // Also by me: YapToText. Mirrors the shoutout YapToText's
+                // About page gives InputConfig, so the two apps point at
+                // each other.
+                HStack(spacing: 12) {
+                    Image("YapToTextIcon")
+                        .resizable().scaledToFit()
+                        .frame(width: 44, height: 44)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("YapToText").font(.callout.weight(.semibold))
+                        Text("Also by me: a free, on-device dictation tool that types what you say into any app.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Link(destination: URL(string: "https://apps.apple.com/us/app/yaptotext/id6786382289?mt=12")!) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.forward.app")
+                            Text("App Store")
+                        }
+                        .font(.callout)
+                    }
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.secondary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+                )
+
                 // Tip jar. Promotional CTA, not a form control, so it takes the
                 // hero glass treatment rather than a bordered form button.
                 Button {
@@ -1099,3 +1188,80 @@ struct LaunchAtLoginToggleView: View {
     }
 }
 #endif
+
+// MARK: - Changelog
+
+/// The in-app release notes: one entry per version, newest first. The About
+/// tab's View Changelog row opens this list. Add a new entry here as part of
+/// preparing each release.
+enum Changelog {
+    struct Entry: Identifiable {
+        var id: String { version }
+        let version: String
+        let points: [String]
+    }
+
+    /// The running app's own version string, straight from the bundle: "1.1.1 (21)".
+    static var currentVersion: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        return "\(short) (\(build))"
+    }
+
+    static let entries: [Entry] = [
+        Entry(version: "1.2", points: [
+            "MIDI devices can now be used as an input: bind notes, pads, knobs, the pitch wheel, the sustain pedal, and aftertouch to keys, clicks, macros, or anything else",
+            "DualSense Edge extra buttons: the back paddles, both FN buttons, and mute are now bindable like any other input, over Bluetooth and USB",
+            "Light bar colors now work over Bluetooth: preset colors, the RGB cycle, and brightness all reach the controller wirelessly",
+            "A new DualSense Edge help guide covers binding the extra buttons",
+            "More reliable controller data reading behind the scenes, with an automatic fallback when a Bluetooth session goes quiet",
+        ]),
+        Entry(version: "1.1.1", points: [
+            "Fixes a crash that prevented InputConfig from launching on macOS 14 Sonoma",
+        ]),
+        Entry(version: "1.1", points: [
+            "431 built-in presets, over 300 of them new: games, creative and productivity apps, and accessibility workflows including VoiceOver Navigation, Numeric Keypad, Menu Bar and Dock, Emulator, and Comic Reader",
+            "Much broader controller compatibility: DualShock 3, Logitech F-series in D mode, fight sticks, multi-mode pads, and wheels, with correct d-pad handling on far more controllers",
+            "Keyboard shortcut outputs with modifiers (Cmd+C and friends) now fire as real combos",
+            "Fixed stuck mouse buttons after sleep, stuck MIDI controllers and pitch bend after stopping a preset, and edits to a running preset not applying until reactivation",
+            "Crash recovery now fully restores your active preset, including restarting the mapping engine",
+            "Macros: Toggle plus Macro works as documented, the editor shows macro state accurately, and duplicating a binding keeps every setting",
+            "VoiceOver: the input scan overlay announces itself and speaks what it detected, and the binding editor controls are labeled",
+            "Live Visualizer: the zoomed controller map stays cleanly inside its panel",
+            "Faster and lighter: large reductions in per-frame work across the input path and the interface",
+        ]),
+        Entry(version: "1.0", points: [
+            "Initial release: map any controller, keyboard, or mouse to keyboard, mouse, MIDI, and more, anywhere on macOS",
+            "Preset system with groups, notes, per-preset light bar colors, and app auto-activation",
+            "Scan to bind: press any control and it maps instantly",
+            "Live Visualizer with customizable widget layout",
+            "Turbo, macros, hold and double-tap actions, haptics, and spoken feedback per binding",
+            "Touchpad calibration and regions, gyroscope aim, deadzone tuning, one-stick driving",
+            "MIDI notes, CC, and pitch bend outputs through a built-in virtual MIDI port",
+        ]),
+
+        // Everything below shipped under the app's original name,
+        // JoystickConfig, before the rename to InputConfig.
+        Entry(version: "1.2 (as JoystickConfig)", points: [
+            "Support for controllers beyond Apple's framework: the app now reads raw HID gamepads directly, with a descriptor parser and a controller profile database",
+            "Your Mac's own keyboard and mouse can be used as input sources",
+            "Cursor regions and stick regions: fire bindings when the pointer or a stick enters a zone you draw",
+            "Crash recovery restores your active preset after an unexpected quit",
+            "Menu bar icon with quick preset switching",
+            "Freeze watchdog and cursor guard for a safer always-on experience",
+        ]),
+        Entry(version: "1.1 (as JoystickConfig)", points: [
+            "MIDI output: send notes, CC, and pitch bend to any music app through a built-in virtual port",
+            "Steam Controller support",
+            "Controller touchpad as a mouse, with calibration",
+            "Deadzone calibration with a live plot",
+            "Motion calibration for gyroscope presets",
+            "Usage statistics, a test bench for trying bindings, and Launch at Login",
+        ]),
+        Entry(version: "1.0 (as JoystickConfig)", points: [
+            "The original release: map a game controller to keyboard and mouse anywhere on macOS",
+            "Presets, the mapping engine, and scan to bind",
+            "DualSense light bar control and haptic feedback",
+        ]),
+    ]
+}

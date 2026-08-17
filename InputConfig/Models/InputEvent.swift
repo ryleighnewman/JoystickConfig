@@ -41,6 +41,12 @@ enum InputType: String, Codable, CaseIterable, Identifiable {
     /// `touchpadGestureKind`. Behaves like a button - fires for one
     /// poll frame when the gesture is recognised.
     case touchpadGesture = "tpg"
+    /// A message from an external MIDI device (keyboard, pad controller,
+    /// knob box). Notes and pads behave like buttons; CC knobs, pitch
+    /// bend, and aftertouch behave like analog axes. `index` carries the
+    /// note or CC number, `midiChannel` the 1-16 channel (nil = any),
+    /// and `midiKind` which message family it is.
+    case midi = "mid"
 
     var id: String { rawValue }
 
@@ -57,6 +63,7 @@ enum InputType: String, Codable, CaseIterable, Identifiable {
         case .cursorRegion: return "Cursor Region"
         case .stickRegion: return "Stick Region"
         case .touchpadGesture: return "Touchpad Gesture"
+        case .midi: return "MIDI"
         }
     }
 }
@@ -76,6 +83,52 @@ enum TouchpadGestureKind: String, Codable, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .twoFingerTap: return "Two-finger tap"
+        }
+    }
+}
+
+/// Which family of MIDI message an `.midi` input listens for.
+enum MIDIInputKind: String, Codable, CaseIterable, Identifiable {
+    /// Note on / off. Fires like a button while the key or pad is held.
+    case note
+    /// Control Change (knobs, sliders, sustain pedals, mod wheel).
+    /// Continuous, so it can drive an axis as well as a threshold.
+    case cc
+    /// Pitch bend wheel. Centre-detented, so it reads as a bipolar axis.
+    case pitchBend
+    /// Program Change - fires momentarily like a button press.
+    case programChange
+    /// Channel aftertouch (pressure applied after the key is down).
+    case aftertouch
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .note:          return "Note"
+        case .cc:            return "Control Change"
+        case .pitchBend:     return "Pitch Bend"
+        case .programChange: return "Program Change"
+        case .aftertouch:    return "Aftertouch"
+        }
+    }
+
+    /// True when the message carries a continuous value that can drive an
+    /// analog output (mouse motion, scroll) rather than only a press.
+    var isContinuous: Bool {
+        switch self {
+        case .cc, .pitchBend, .aftertouch: return true
+        case .note, .programChange:        return false
+        }
+    }
+
+    /// True when the message has a per-message number (note number, CC
+    /// number). Pitch bend and aftertouch are per-channel, so their
+    /// number field is unused.
+    var usesNumber: Bool {
+        switch self {
+        case .note, .cc, .programChange: return true
+        case .pitchBend, .aftertouch:    return false
         }
     }
 }
@@ -244,6 +297,16 @@ struct InputEvent: Codable, Hashable, Identifiable {
     /// Same on-disk format as `touchpadRegionID`; the stickIndex (left
     /// vs right stick) is carried in the InputEvent's `index` field.
     var stickRegionID: UUID?
+    /// Which MIDI message family this input listens for. Only valid for
+    /// `.midi`.
+    var midiKind: MIDIInputKind?
+    /// MIDI channel 1-16, or nil for "any channel". Only valid for `.midi`.
+    var midiChannel: Int?
+    /// Stable ID of the MIDI source endpoint this binding listens to.
+    /// nil means "any connected MIDI device", which is the friendly
+    /// default: a preset keeps working when the user plugs in a
+    /// different keyboard. Only valid for `.midi`.
+    var midiDeviceID: String?
 
     var displayName: String {
         switch type {
@@ -293,6 +356,23 @@ struct InputEvent: Codable, Hashable, Identifiable {
             return "\(stick) Stick Region"
         case .touchpadGesture:
             return touchpadGestureKind?.displayName ?? "Touchpad Gesture"
+        case .midi:
+            let kind = midiKind ?? .note
+            let chan = midiChannel.map { "ch\($0)" } ?? "any ch"
+            switch kind {
+            case .note:
+                return "MIDI \(MIDIService.noteName(index)) (\(chan))"
+            case .cc:
+                let dir = axisDirection.map { " \($0.displayName)" } ?? ""
+                return "MIDI CC \(index)\(dir) (\(chan))"
+            case .programChange:
+                return "MIDI Program \(index) (\(chan))"
+            case .pitchBend:
+                let dir = axisDirection.map { " \($0.displayName)" } ?? ""
+                return "MIDI Pitch Bend\(dir) (\(chan))"
+            case .aftertouch:
+                return "MIDI Aftertouch (\(chan))"
+            }
         }
     }
 
@@ -346,6 +426,14 @@ struct InputEvent: Codable, Hashable, Identifiable {
         case .touchpadGesture:
             // "tpg <kind>" e.g. "tpg twoFingerTap"
             return "tpg \(touchpadGestureKind?.rawValue ?? "twoFingerTap")"
+        case .midi:
+            // "mid <kind> <number> <channel|any> <dir> <deviceID|any>"
+            // e.g. "mid note 60 any + any", "mid cc 74 1 + any"
+            let kind = (midiKind ?? .note).rawValue
+            let chan = midiChannel.map(String.init) ?? "any"
+            let dir = axisDirection?.rawValue ?? "+"
+            let dev = midiDeviceID ?? "any"
+            return "mid \(kind) \(index) \(chan) \(dir) \(dev)"
         }
     }
 
@@ -432,6 +520,20 @@ struct InputEvent: Codable, Hashable, Identifiable {
                   let kind = TouchpadGestureKind(rawValue: parts[1]) else { return nil }
             return InputEvent(type: .touchpadGesture, index: 0,
                               touchpadGestureKind: kind)
+        case "mid":
+            // "mid <kind> <number> <channel|any> <dir> <deviceID|any>"
+            guard parts.count >= 3,
+                  let kind = MIDIInputKind(rawValue: parts[1]),
+                  let number = Int(parts[2]) else { return nil }
+            let channel: Int? = parts.count > 3 ? Int(parts[3]) : nil
+            let dir: AxisDirection = (parts.count > 4
+                ? AxisDirection(rawValue: parts[4]) : nil) ?? .positive
+            let device: String? = (parts.count > 5 && parts[5] != "any") ? parts[5] : nil
+            return InputEvent(type: .midi, index: number,
+                              axisDirection: dir,
+                              midiKind: kind,
+                              midiChannel: channel,
+                              midiDeviceID: device)
         default:
             return nil
         }
@@ -475,6 +577,20 @@ struct InputEvent: Codable, Hashable, Identifiable {
     static func motion(_ channel: MotionChannel, direction: AxisDirection) -> InputEvent {
         InputEvent(type: .motion, index: 0,
                    axisDirection: direction, motionChannel: channel)
+    }
+
+    /// A MIDI input. `number` is the note or CC number (ignored for pitch
+    /// bend and aftertouch, which are per-channel). `channel` nil means any.
+    static func midi(_ kind: MIDIInputKind,
+                     number: Int,
+                     channel: Int? = nil,
+                     direction: AxisDirection = .positive,
+                     deviceID: String? = nil) -> InputEvent {
+        InputEvent(type: .midi, index: number,
+                   axisDirection: direction,
+                   midiKind: kind,
+                   midiChannel: channel,
+                   midiDeviceID: deviceID)
     }
 
     static func extKey(hidCode: Int, deviceID: String? = nil) -> InputEvent {

@@ -254,8 +254,12 @@ final class TouchpadService: @unchecked Sendable {
     func start() {
         guard !helperRunning else { return }
         if #available(macOS 14.0, *) {
-            // Skip the helper entirely; the GameController bridge is
-            // the authoritative source on these systems.
+            // Skip the helper entirely; the GameController bridge is the
+            // authoritative touch source on these systems, and the PS /
+            // mute / DualSense Edge extras byte comes from the app's own
+            // in-process HID reader (DualSenseSupplementService), which
+            // receives both USB and Bluetooth input reports fine under
+            // the sandbox - verified live with an Edge on BT.
             return
         }
         guard let helperURL = helperPath() else {
@@ -844,14 +848,22 @@ final class TouchpadService: @unchecked Sendable {
     }
 
     /// Format: "T <seq> <btn> <f0Active> <f0Id> <f0X> <f0Y> <f1Active> <f1Id> <f1X> <f1Y> <kind>"
+    /// Also:   "B <buttons2> <kind>" - the raw PS/mute/Edge-extras byte,
+    /// emitted by the helper only when it changes.
     private func handleLine(_ line: String) {
         let parts = line.split(separator: " ").map(String.init)
         // Surface non-T messages from the helper so we can see startup
         // handshakes ("R ready"), device-attach events ("A dualsense"),
         // and errors. T lines are the input stream and would flood the
-        // log if we printed them, so they're filtered out.
+        // log if we printed them, so they're filtered out. B lines fire
+        // once per press/release edge, so logging them doubles as the
+        // press diagnostic for the Edge extras.
         if parts.first != "T" {
             NSLog("[TouchpadHelper STDOUT] %@", line)
+        }
+        if parts.first == "B", parts.count >= 2, let b2 = UInt8(parts[1]) {
+            DualSenseSupplementService.shared.ingestHelperButtons2(b2)
+            return
         }
         guard parts.first == "T", parts.count >= 11,
               let f0Active = UInt8(parts[3]),

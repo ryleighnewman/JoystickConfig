@@ -361,6 +361,18 @@ class MappingEngine: ObservableObject {
             log("  Controller \(i): \(ctrl.vendorName ?? "Unknown"), hasExtendedGamepad: \(ctrl.extendedGamepad != nil)")
         }
 
+        // Open the MIDI input port when this preset binds anything to a
+        // MIDI message, so a keyboard / pad controller is live the moment
+        // the preset activates. Cheap to leave open, but there is no
+        // reason to hold a CoreMIDI client for presets that never use it.
+        let usesMIDIInput = preset.joysticks.contains { group in
+            group.bindings.contains { $0.input.type == .midi }
+        }
+        if usesMIDIInput {
+            MIDIInputService.shared.start()
+            log("MIDI input opened for this preset")
+        }
+
         // Push the preset's light-bar override (if any) so every
         // light-capable controller flashes the preset's color while it's
         // active. We apply temporarily - the slot's stored default color is
@@ -603,6 +615,10 @@ class MappingEngine: ObservableObject {
         powerSourceSubscription = nil
         lastSeenPowerSource = nil
         SystemStatsService.shared.release()
+
+        // Drop any held MIDI notes so a key held at the moment the preset
+        // stopped can't leave its binding latched on.
+        MIDIInputService.shared.releaseAll()
 
         // Revert any preset light-bar override by re-asserting each
         // light-capable controller's stored slot color. setControllerLight
@@ -1280,6 +1296,77 @@ class MappingEngine: ObservableObject {
             // only reachable from legacy code paths that don't expect
             // external types.
             return checkExternalInput(input)
+
+        case .midi:
+            return checkMIDIInput(input, binding: binding, threshold: axisThreshold)
+        }
+    }
+
+    /// Evaluates a `.midi` input against MIDIInputService's live state.
+    /// Notes and program changes behave like buttons; CC, pitch bend, and
+    /// aftertouch are continuous, so they threshold like an axis and can
+    /// also drive analog outputs through `midiAxisValue`.
+    private func checkMIDIInput(_ input: InputEvent,
+                                binding: BindingModel?,
+                                threshold: Float) -> Bool {
+        let service = MIDIInputService.shared
+        let channel = input.midiChannel
+        let device = input.midiDeviceID
+
+        switch input.midiKind ?? .note {
+        case .note:
+            return service.isNoteDown(input.index, channel: channel, deviceID: device)
+
+        case .programChange:
+            // Momentary: true for exactly one poll frame after arrival.
+            return service.consumeProgramChange(input.index, channel: channel, deviceID: device)
+
+        case .cc:
+            // A knob at rest reads its last value, so a plain "CC moved"
+            // binding uses the halfway point as the press threshold -
+            // that matches how a sustain pedal or a switch-style CC
+            // (0 = off, 127 = on) behaves, which is the common case.
+            guard let value = service.ccValue(input.index, channel: channel, deviceID: device) else {
+                return false
+            }
+            let normalized = Float(value) / 127.0
+            switch input.axisDirection {
+            case .negative: return normalized < 0.5
+            default:        return normalized >= 0.5
+            }
+
+        case .pitchBend:
+            let value = service.pitchBendValue(channel: channel, deviceID: device)
+            let v = (binding?.invertAxis == true) ? -value : value
+            switch input.axisDirection {
+            case .positive: return v > threshold
+            case .negative: return v < -threshold
+            case .none:     return abs(v) > threshold
+            }
+
+        case .aftertouch:
+            let value = Float(service.aftertouchValue(channel: channel, deviceID: device)) / 127.0
+            return value > threshold
+        }
+    }
+
+    /// Continuous value for a `.midi` input, normalized to the same
+    /// -1...1 range the axis outputs (mouse motion, scroll) expect.
+    /// Returns nil for message families that aren't continuous.
+    func midiAxisValue(_ input: InputEvent) -> Float? {
+        let service = MIDIInputService.shared
+        let channel = input.midiChannel
+        let device = input.midiDeviceID
+        switch input.midiKind ?? .note {
+        case .cc:
+            guard let v = service.ccValue(input.index, channel: channel, deviceID: device) else { return nil }
+            return Float(v) / 127.0
+        case .pitchBend:
+            return service.pitchBendValue(channel: channel, deviceID: device)
+        case .aftertouch:
+            return Float(service.aftertouchValue(channel: channel, deviceID: device)) / 127.0
+        case .note, .programChange:
+            return nil
         }
     }
 

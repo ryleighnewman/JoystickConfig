@@ -647,6 +647,9 @@ struct BindingRowView: View {
             .menuStyle(.borderlessButton)
             .controlSize(.small)
             .fixedSize()
+
+        case .midi:
+            midiIndexPicker
         }
     }
 
@@ -784,6 +787,97 @@ struct BindingRowView: View {
         return "Pick stick region"
     }
 
+    /// MIDI: the first column picks the message family and its number
+    /// (note or CC). Pitch bend and aftertouch are per-channel, so they
+    /// have no number and the menu collapses to just the family.
+    @ViewBuilder
+    private var midiIndexPicker: some View {
+        Menu {
+            Section("Message") {
+                ForEach(MIDIInputKind.allCases) { kind in
+                    Button(kind.displayName) {
+                        binding.input.midiKind = kind
+                        // Reset the number to something sensible for the
+                        // new family so the row never shows "CC 60".
+                        if kind == .note { binding.input.index = 60 }
+                        else if kind == .cc { binding.input.index = 1 }
+                        else { binding.input.index = 0 }
+                    }
+                }
+            }
+            let kind = binding.input.midiKind ?? .note
+            if kind.usesNumber {
+                Section(kind == .note ? "Note" : (kind == .cc ? "Controller" : "Program")) {
+                    // Live devices make Scan the better path, so this menu
+                    // stays short: common values, not all 128.
+                    ForEach(Self.midiNumberChoices(for: kind), id: \.0) { pair in
+                        Button(pair.1) { binding.input.index = pair.0 }
+                    }
+                }
+            }
+        } label: {
+            menuChevronLabel(midiIndexLabel)
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+    }
+
+    private var midiIndexLabel: String {
+        let kind = binding.input.midiKind ?? .note
+        switch kind {
+        case .note:          return MIDIService.noteName(binding.input.index)
+        case .cc:            return "CC \(binding.input.index)"
+        case .programChange: return "Prog \(binding.input.index)"
+        case .pitchBend:     return "Pitch Bend"
+        case .aftertouch:    return "Aftertouch"
+        }
+    }
+
+    /// Menu choices per message family. Notes span a usable keyboard
+    /// range; CC lists the controllers people actually bind.
+    private static func midiNumberChoices(for kind: MIDIInputKind) -> [(Int, String)] {
+        switch kind {
+        case .note:
+            return (36...84).map { ($0, MIDIService.noteName($0)) }
+        case .cc:
+            var out = MIDIService.commonCCs.map { ($0.number, "CC \($0.number) - \($0.name)") }
+            let common = Set(MIDIService.commonCCs.map(\.number))
+            out += (0...127).filter { !common.contains($0) }.map { ($0, "CC \($0)") }
+            return out
+        case .programChange:
+            return (0...127).map { ($0, "Program \($0)") }
+        case .pitchBend, .aftertouch:
+            return []
+        }
+    }
+
+    /// MIDI: the second column picks the channel (or Any).
+    @ViewBuilder
+    private var midiChannelPicker: some View {
+        Menu {
+            Button("Any channel") { binding.input.midiChannel = nil }
+            Section("Channel") {
+                ForEach(1...16, id: \.self) { ch in
+                    Button("Channel \(ch)") { binding.input.midiChannel = ch }
+                }
+            }
+            // Continuous controllers can be bound as a half-axis, so
+            // offer the direction alongside the channel rather than
+            // adding a fourth column just for MIDI.
+            if (binding.input.midiKind ?? .note).isContinuous {
+                Section("Direction") {
+                    ForEach(AxisDirection.allCases) { dir in
+                        Button(dir.displayName) { binding.input.axisDirection = dir }
+                    }
+                }
+            }
+        } label: {
+            menuChevronLabel(binding.input.midiChannel.map { "Ch \($0)" } ?? "Any ch")
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+    }
+
     // MARK: - Index / Direction Accessibility
 
     /// Spoken role name for the index picker, matching whatever the closed
@@ -802,6 +896,7 @@ struct BindingRowView: View {
         case .extKey: return "Key"
         case .extMouse: return "Mouse input"
         case .touchpadGesture: return "Gesture"
+        case .midi: return "MIDI message"
         }
     }
 
@@ -825,6 +920,8 @@ struct BindingRowView: View {
             return cursorRegionDisplayName
         case .stickRegion:
             return stickRegionDisplayName
+        case .midi:
+            return binding.input.displayName
         case .extKey:
             return "Key \(binding.input.index)"
         case .extMouse:
@@ -860,6 +957,8 @@ struct BindingRowView: View {
         switch binding.input.type {
         case .button, .touchpadRegion, .cursorRegion, .stickRegion, .touchpadGesture:
             return "Not applicable"
+        case .midi:
+            return binding.input.midiChannel.map { "Channel \($0)" } ?? "Any channel"
         case .axis, .motion:
             return axisDirectionBinding.wrappedValue.displayName
         case .hat:
@@ -1008,6 +1107,12 @@ struct BindingRowView: View {
             // spacer so the column width stays aligned with the rest
             // of the rows.
             Color.clear.frame(width: 0, height: 0)
+
+        case .midi:
+            // MIDI reuses this column for the channel (plus the
+            // direction for continuous messages), so a note binding
+            // reads "C3 / Any ch" across the two columns.
+            midiChannelPicker
         }
     }
 
