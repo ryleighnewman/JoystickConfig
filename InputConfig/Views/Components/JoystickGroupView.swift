@@ -161,10 +161,12 @@ struct JoystickGroupView: View {
                         .foregroundStyle(.tertiary)
                     Text("·")
                         .foregroundStyle(.tertiary)
-                    Text(controllerName)
-                        .font(.caption2)
-                        .foregroundStyle(controllerName.contains("No controller") ? .red.opacity(0.6) : .secondary)
-                        .lineLimit(1)
+                    if !(controllerName.contains("No controller") && isDeviceIndependentGroup) {
+                        Text(controllerName)
+                            .font(.caption2)
+                            .foregroundStyle(controllerName.contains("No controller") ? .red.opacity(0.6) : .secondary)
+                            .lineLimit(1)
+                    }
                 }
                 TextField("Tag / comment", text: $joystick.tag)
                     .font(.caption)
@@ -291,12 +293,28 @@ struct JoystickGroupView: View {
     ///   1. user-set customName
     ///   2. controllerName (passed in by the editor - reflects the
     ///      controller actually attached to this slot)
-    ///   3. fallback to "Joystick #N"
+    ///   3. fallback to "Input Device N"
     private var resolvedHeaderName: String {
         if let custom = joystick.customName, !custom.isEmpty { return custom }
         let trimmed = controllerName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty && !trimmed.contains("No controller") { return trimmed }
-        return "Joystick #\(joystickIndex)"
+        // "Joystick" was misleading: a group can hold MIDI, keyboard, and
+        // mouse bindings that have nothing to do with a gamepad.
+        return "Input Device \(joystickIndex)"
+    }
+
+    /// True when every binding in this group comes from a source that does
+    /// not need a game controller in this slot (MIDI, keyboard, mouse, and
+    /// cursor zones). Used to suppress the "no controller" warning, which
+    /// otherwise reads as an error to someone mapping a MIDI keyboard.
+    private var isDeviceIndependentGroup: Bool {
+        guard !joystick.bindings.isEmpty else { return false }
+        return joystick.bindings.allSatisfy { b in
+            switch b.input.type {
+            case .midi, .extKey, .extMouse, .cursorRegion: return true
+            default: return false
+            }
+        }
     }
 
     /// Tap-to-pick menu replacing the previous bare TextField. Lists

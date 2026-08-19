@@ -755,6 +755,13 @@ class MappingEngine: ObservableObject {
                 let isActive: Bool
                 if binding.input.type == .extKey || binding.input.type == .extMouse {
                     isActive = checkExternalInput(binding.input)
+                } else if binding.input.type == .midi {
+                    // MIDI is device-independent like the keyboard / mouse
+                    // inputs: it must fire even when no game controller is
+                    // connected, which is the whole point of using a MIDI
+                    // pad controller as a standalone Mac remote.
+                    isActive = checkMIDIInput(binding.input, binding: binding,
+                                              threshold: binding.deadzone ?? defaultAxisThreshold)
                 } else if let s = state {
                     isActive = checkInput(binding.input, state: s, binding: binding)
                 } else {

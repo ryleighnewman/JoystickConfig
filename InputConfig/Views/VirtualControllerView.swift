@@ -1404,7 +1404,7 @@ struct VirtualControllerView<Trailing: View>: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 if preset.joysticks.count > 1 {
-                                    Text("Joystick #\(match.joystickIndex)")
+                                    Text("Input Device \(match.joystickIndex)")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }

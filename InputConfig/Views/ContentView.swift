@@ -3360,7 +3360,7 @@ struct PresetDetailView: View {
                             .padding(.horizontal)
                     } else {
                         ContentUnavailableView {
-                            Label { Text("No Joystick Mappings") } icon: { ControllerGlyph(height: 22) }
+                            Label { Text("No Input Mappings") } icon: { ControllerGlyph(height: 22) }
                         } description: {
                             Text("Edit this preset to add joystick mappings.")
                         }
@@ -3553,7 +3553,7 @@ struct PresetDetailView: View {
                     let idx = viz.idx
                     let slot = viz.slot
                     HStack(spacing: 8) {
-                        Text("Joystick #\(idx)")
+                        Text("Input Device \(idx)")
                             .font(.caption2.weight(.semibold).monospaced())
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
@@ -3703,7 +3703,7 @@ struct PresetDetailView: View {
             let trimmed = info.name.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }
-        return "Joystick #\(slot)"
+        return "Input Device \(slot)"
     }
 
     /// Apply the visualizer picker's choice back to the preset model

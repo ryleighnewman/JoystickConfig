@@ -150,6 +150,9 @@ struct BindingRowView: View {
                         inputTypeChoice(.cursorRegion)
                         inputTypeChoice(.stickRegion)
                     }
+                    Section("MIDI") {
+                        inputTypeChoice(.midi)
+                    }
                 } label: {
                     menuChevronLabel(binding.input.type.displayName)
                 }
@@ -855,6 +858,19 @@ struct BindingRowView: View {
     @ViewBuilder
     private var midiChannelPicker: some View {
         Menu {
+            // Device section first: this is where users look to confirm
+            // their MIDI keyboard was detected at all.
+            Section("Device") {
+                Button("Any device") { binding.input.midiDeviceID = nil }
+                let devices = MIDIInputService.shared.connectedDevices()
+                if devices.isEmpty {
+                    Text("No MIDI devices detected")
+                } else {
+                    ForEach(devices) { device in
+                        Button(device.name) { binding.input.midiDeviceID = device.id }
+                    }
+                }
+            }
             Button("Any channel") { binding.input.midiChannel = nil }
             Section("Channel") {
                 ForEach(1...16, id: \.self) { ch in
@@ -1748,7 +1764,21 @@ struct BindingRowView: View {
 
     /// Selects an input type from the lazy type menu.
     private func inputTypeChoice(_ type: InputType) -> some View {
-        Button(type.displayName) { binding.input.type = type }
+        Button(type.displayName) {
+            binding.input.type = type
+            // Seed defaults when switching INTO MIDI so the row doesn't
+            // inherit the previous type's index (button 0 would show as
+            // note C-2) and so the message family is never nil.
+            if type == .midi {
+                if binding.input.midiKind == nil {
+                    binding.input.midiKind = .note
+                    binding.input.index = 60          // middle C
+                }
+                if binding.input.axisDirection == nil {
+                    binding.input.axisDirection = .positive
+                }
+            }
+        }
     }
 
     /// Shared label style for the lazy menus, matching KeyCodePicker.

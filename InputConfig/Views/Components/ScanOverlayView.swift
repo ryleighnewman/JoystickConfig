@@ -40,7 +40,7 @@ struct ScanOverlayView: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("Hold a button or move an axis on your controller, or press a key, click, or scroll on your Mac keyboard or trackpad.")
+                Text("Hold a button or move an axis on your controller, press a key, click, or scroll on your Mac, or play a note or twist a knob on a MIDI device.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -80,7 +80,7 @@ struct ScanOverlayView: View {
             .liquidGlass(in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
             .shadow(radius: 20)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Scan for input. Press a control on your controller, or a key, click, or scroll on your Mac, to map it.")
+            .accessibilityLabel("Scan for input. Press a control on your controller, a key, click, or scroll on your Mac, or a note or knob on a MIDI device, to map it.")
             .accessibilityHint("Press Escape to cancel.")
         }
         .onAppear {
@@ -89,7 +89,7 @@ struct ScanOverlayView: View {
                 completeScan(with: event)
             }
             installInputMonitor()
-            announce("Scanning for input. Press a control on your controller, or a key, click, or scroll on your Mac, to map it. Press Escape to cancel.")
+            announce("Scanning for input. Press a control on your controller, a key, click, or scroll on your Mac, or a note or knob on a MIDI device, to map it. Press Escape to cancel.")
         }
         .onDisappear {
             cleanup()

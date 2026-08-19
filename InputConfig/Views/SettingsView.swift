@@ -1209,6 +1209,15 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.2.1", points: [
+            "Fixes MIDI devices not appearing as an option when creating a binding",
+            "MIDI now works with no game controller connected, so a MIDI keyboard or pad controller can drive your Mac on its own",
+            "Connected MIDI devices are listed by name when you pick an input, so you can confirm yours was found",
+            "Input groups are now called Input Device rather than Joystick, since a group can hold MIDI, keyboard, and mouse bindings too",
+            "A group no longer warns about a missing controller when nothing in it needs one",
+            "The scan panel now tells you that you can play a note or twist a knob to map it",
+        ]),
+
         Entry(version: "1.2", points: [
             "MIDI devices can now be used as an input: bind notes, pads, knobs, the pitch wheel, the sustain pedal, and aftertouch to keys, clicks, macros, or anything else",
             "DualSense Edge extra buttons: the back paddles, both FN buttons, and mute are now bindable like any other input, over Bluetooth and USB",

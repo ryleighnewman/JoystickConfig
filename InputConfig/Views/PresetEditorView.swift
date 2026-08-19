@@ -168,7 +168,7 @@ struct PresetEditorView: View {
                             preset.joysticks.append(JoystickMapping(tag: "<write comments here>"))
                         }
                     } label: {
-                        Label("Add a new Joystick", systemImage: "plus.circle")
+                        Label("Add a new Input Device", systemImage: "plus.circle")
                             .frame(maxWidth: .infinity)
                             .padding(12)
                             .background(
