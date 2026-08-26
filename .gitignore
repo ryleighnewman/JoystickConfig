@@ -23,6 +23,8 @@ xcuserdata/
 # Editor / tooling
 .cursor/
 .vscode/
+__pycache__/
+*.py[cod]
 
 # Compiled helper binary (rebuilt by build_and_archive.sh)
 LightHelper/LightHelper

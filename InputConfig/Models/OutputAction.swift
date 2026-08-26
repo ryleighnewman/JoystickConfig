@@ -115,6 +115,7 @@ enum AppActionKind: String, Codable, CaseIterable, Identifiable {
     case previousPreset = "prev"
     case deactivate = "off"
     case togglePauseOutputs = "pause"
+    case missionControl = "mission"
 
     var id: String { rawValue }
 
@@ -125,6 +126,7 @@ enum AppActionKind: String, Codable, CaseIterable, Identifiable {
         case .previousPreset: return "Previous Preset"
         case .deactivate: return "Deactivate"
         case .togglePauseOutputs: return "Pause / Resume Outputs"
+        case .missionControl: return "Mission Control"
         }
     }
 }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FBC1C1000000000000000001 /* CLICommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBC1C2000000000000000001 /* CLICommandService.swift */; };
 		0E46623A5B439FBDD3CC72FB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 686B462A282363F0A92B39CA /* IOKit.framework */; };
 		12F586F001E7C3D2B8750E19 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */; };
 		1D832C989E14A5A9DE291597 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8038B8B7970BB4B800991EE0 /* GameController.framework */; };
@@ -88,6 +89,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		FBC1C2000000000000000001 /* CLICommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICommandService.swift; sourceTree = "<group>"; };
 		0FD0D3A62AD97DC81F3FF52B /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
 		1A95E8B26BF8FC8349144B7B /* ExamplePresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExamplePresets.swift; sourceTree = "<group>"; };
 		1ADD0DB9D63A081D226051F7 /* InputSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSimulator.swift; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 		9C21B2EB3BCE07C2FA6F351B /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				FBC1C2000000000000000001 /* CLICommandService.swift */,
 				FB20010008CTRLTYPEDET00001 /* ControllerTypeDetector.swift */,
 				FB20010004EIGHTBITDO000001 /* EightBitDoDetector.swift */,
 				FB20010001FEEDBACK000001 /* FeedbackService.swift */,
@@ -452,6 +455,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FBC1C1000000000000000001 /* CLICommandService.swift in Sources */,
 				306FAA3C20CF616DF8599590 /* BindingRowView.swift in Sources */,
 				FB2001GYROVIZ001000000000 /* GyroVisualizationView.swift in Sources */,
 				FB10010008CTRLTYPEDET00001 /* ControllerTypeDetector.swift in Sources */,
@@ -535,7 +539,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 22;
-				DEVELOPMENT_TEAM = 65JK8K8VGM;
+				DEVELOPMENT_TEAM = G63G3JB5DN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = InputConfig/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -544,7 +548,7 @@
 				);
 				MARKETING_VERSION = 1.2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				PRODUCT_BUNDLE_IDENTIFIER = com.inputconfig.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryokojima.inputconfig.local;
 				PRODUCT_MODULE_NAME = InputConfig;
 				PRODUCT_NAME = InputConfig;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -626,7 +630,7 @@
 				CODE_SIGN_ENTITLEMENTS = InputConfig/InputConfig.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 22;
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = 65JK8K8VGM;
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = G63G3JB5DN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = InputConfig/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -636,7 +640,7 @@
 				MARKETING_VERSION = 1.2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				PRODUCT_BUNDLE_IDENTIFIER = com.inputconfig.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryokojima.inputconfig.local;
 				PRODUCT_MODULE_NAME = InputConfig;
 				PRODUCT_NAME = InputConfig;
 				SDKROOT = macosx;

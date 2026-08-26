@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""Filesystem/Darwin-notification CLI for InputConfig (stdlib only)."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import plistlib
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+BUNDLE_ID = "com.ryokojima.inputconfig.local"
+NOTIFICATION = f"{BUNDLE_ID}.cli.request"
+DEFAULT_TIMEOUT = 10.0
+
+
+class CLIError(RuntimeError):
+    def __init__(self, message: str, exit_code: int = 3):
+        super().__init__(message)
+        self.exit_code = exit_code
+
+
+def protocol_root() -> Path:
+    override = os.environ.get("INPUTCONFIG_CLI_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    # The local build deliberately keeps the main app unsandboxed so this
+    # stdlib-only CLI and the app can share one user-owned protocol directory.
+    # HID helpers remain individually sandboxed and signed with device access.
+    return Path.home() / "Library" / "Application Support" / "InputConfig" / "CLI" / "v1"
+
+
+def atomic_write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def load_json_argument(raw: str) -> Any:
+    if raw == "-":
+        return json.load(sys.stdin)
+    candidate = Path(raw).expanduser()
+    if candidate.is_file():
+        try:
+            with candidate.open(encoding="utf-8") as handle:
+                return json.load(handle)
+        except json.JSONDecodeError as exc:
+            raise CLIError(f"invalid JSON in {candidate}: {exc}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CLIError(f"not valid JSON or a readable file: {raw}: {exc}") from exc
+
+
+def selector(raw: str) -> dict[str, str]:
+    try:
+        return {"id": str(uuid.UUID(raw))}
+    except ValueError:
+        if not raw.strip():
+            raise CLIError("preset selector cannot be empty")
+        return {"name": raw}
+
+
+def decode_pointer_token(token: str) -> str:
+    return token.replace("~1", "/").replace("~0", "~")
+
+
+def json_pointer_set(document: Any, pointer: str, value: Any, *, remove: bool = False) -> Any:
+    if pointer == "":
+        if remove:
+            raise CLIError("cannot remove the document root")
+        return value
+    if not pointer.startswith("/"):
+        raise CLIError("JSON Pointer must be empty or start with /")
+    tokens = [decode_pointer_token(part) for part in pointer[1:].split("/")]
+    current = document
+    for token in tokens[:-1]:
+        if isinstance(current, list):
+            try:
+                index = int(token)
+                current = current[index]
+            except (ValueError, IndexError) as exc:
+                raise CLIError(f"invalid array path component: {token}") from exc
+        elif isinstance(current, dict) and token in current:
+            current = current[token]
+        else:
+            raise CLIError(f"JSON Pointer path does not exist: {pointer}")
+    leaf = tokens[-1]
+    if isinstance(current, list):
+        if leaf == "-" and not remove:
+            current.append(value)
+        else:
+            try:
+                index = int(leaf)
+                if remove:
+                    current.pop(index)
+                else:
+                    current[index] = value
+            except (ValueError, IndexError) as exc:
+                raise CLIError(f"invalid array index: {leaf}") from exc
+    elif isinstance(current, dict):
+        if remove:
+            if leaf not in current:
+                raise CLIError(f"JSON Pointer path does not exist: {pointer}")
+            del current[leaf]
+        else:
+            current[leaf] = value
+    else:
+        raise CLIError(f"JSON Pointer parent is not a container: {pointer}")
+    return document
+
+
+def invoke(command: str, payload: dict[str, Any], *, dry_run: bool, timeout: float) -> dict[str, Any]:
+    request_id = str(uuid.uuid4())
+    if Path(request_id).name != request_id:
+        raise CLIError("unsafe request ID")
+    root = protocol_root()
+    request_path = root / "requests" / f"{request_id}.json"
+    response_path = root / "responses" / f"{request_id}.json"
+    atomic_write_json(request_path, {
+        "schemaVersion": SCHEMA_VERSION,
+        "requestID": request_id,
+        "command": command,
+        "payload": payload,
+        "dryRun": dry_run,
+    })
+    if not (root / "ready.json").exists():
+        subprocess.run(["/usr/bin/open", "-gj", "-b", BUNDLE_ID], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["/usr/bin/notifyutil", "-p", NOTIFICATION], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + timeout
+    next_notify = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        try:
+            with response_path.open(encoding="utf-8") as handle:
+                response = json.load(handle)
+            response_path.unlink(missing_ok=True)
+            return response
+        except FileNotFoundError:
+            time.sleep(0.04)
+        except json.JSONDecodeError:
+            time.sleep(0.02)
+        if time.monotonic() >= next_notify:
+            subprocess.run(["/usr/bin/notifyutil", "-p", NOTIFICATION], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            next_notify = time.monotonic() + 0.5
+    request_path.unlink(missing_ok=True)
+    raise CLIError(f"InputConfig did not respond within {timeout:g} seconds", 5)
+
+
+def add_json_value(parser: argparse.ArgumentParser, flag: str = "value") -> None:
+    parser.add_argument(flag, help="JSON text, a JSON file, or - for stdin")
+
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="inputconfigctl", description="Configure InputConfig from the command line")
+    p.add_argument("--json", action="store_true", help="emit the complete machine-readable response")
+    p.add_argument("--dry-run", action="store_true", help="validate and preview without saving")
+    p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    sub = p.add_subparsers(dest="area", required=True)
+    sub.add_parser("status")
+    accessibility = sub.add_parser("accessibility").add_subparsers(dest="action", required=True)
+    accessibility.add_parser("request")
+    selftest = sub.add_parser("selftest").add_subparsers(dest="action", required=True)
+    selftest.add_parser("run"); selftest.add_parser("status")
+    devices = sub.add_parser("devices").add_subparsers(dest="action", required=True)
+    devices.add_parser("list"); devices.add_parser("state")
+
+    preset = sub.add_parser("preset").add_subparsers(dest="action", required=True)
+    preset.add_parser("list")
+    for action in ("show", "duplicate", "activate", "delete", "export", "convert"):
+        q = preset.add_parser(action); q.add_argument("preset")
+        if action == "export": q.add_argument("--output", "-o", required=True)
+    q = preset.add_parser("create"); q.add_argument("name"); q.add_argument("--tag", default="CLI")
+    for action in ("apply", "import", "validate"):
+        q = preset.add_parser(action); add_json_value(q); q.add_argument("--activate", action="store_true")
+    preset.add_parser("deactivate")
+    q = preset.add_parser("patch"); q.add_argument("preset"); q.add_argument("pointer"); add_json_value(q); q.add_argument("--remove", action="store_true")
+
+    binding = sub.add_parser("binding").add_subparsers(dest="action", required=True)
+    q = binding.add_parser("list"); q.add_argument("preset")
+    q = binding.add_parser("set"); q.add_argument("preset"); add_json_value(q); q.add_argument("--slot", type=int, default=0)
+    q = binding.add_parser("remove"); q.add_argument("preset"); q.add_argument("input")
+
+    group = sub.add_parser("group").add_subparsers(dest="action", required=True)
+    group.add_parser("list")
+    q = group.add_parser("create"); q.add_argument("name")
+    q = group.add_parser("rename"); q.add_argument("id"); q.add_argument("name")
+    q = group.add_parser("move"); q.add_argument("id"); q.add_argument("--parent-id")
+    q = group.add_parser("color"); q.add_argument("id"); q.add_argument("color", nargs="?")
+    q = group.add_parser("delete"); q.add_argument("id")
+
+    settings = sub.add_parser("settings").add_subparsers(dest="action", required=True)
+    q = settings.add_parser("get"); q.add_argument("key", nargs="?")
+    q = settings.add_parser("set"); q.add_argument("key"); add_json_value(q)
+    q = settings.add_parser("reset"); q.add_argument("key", nargs="?"); q.add_argument("--yes", action="store_true")
+    q = settings.add_parser("login-item"); q.add_argument("state", choices=("on", "off"))
+
+    calibration = sub.add_parser("calibration").add_subparsers(dest="action", required=True)
+    calibration.add_parser("get"); calibration.add_parser("reset")
+    q = calibration.add_parser("set"); add_json_value(q)
+
+    region = sub.add_parser("region").add_subparsers(dest="action", required=True)
+    for action in ("list", "apply", "delete"):
+        q = region.add_parser(action); q.add_argument("kind", choices=("touchpad", "cursor", "stick")); q.add_argument("--stick", type=int, choices=(0, 1), default=0)
+        if action == "apply": add_json_value(q)
+        if action == "delete": q.add_argument("id")
+
+    backup = sub.add_parser("backup").add_subparsers(dest="action", required=True)
+    q = backup.add_parser("export"); q.add_argument("output")
+    q = backup.add_parser("restore"); add_json_value(q); q.add_argument("--yes", action="store_true")
+    trash = sub.add_parser("trash").add_subparsers(dest="action", required=True)
+    trash.add_parser("list")
+    q = trash.add_parser("restore"); q.add_argument("id")
+    q = trash.add_parser("empty"); q.add_argument("--yes", action="store_true")
+    stats = sub.add_parser("stats").add_subparsers(dest="action", required=True)
+    stats.add_parser("show")
+    q = stats.add_parser("export"); q.add_argument("output")
+    q = stats.add_parser("reset"); q.add_argument("--yes", action="store_true")
+    sub.add_parser("schema")
+
+    resource = sub.add_parser("resource").add_subparsers(dest="action", required=True)
+    q = resource.add_parser("get"); q.add_argument("resource")
+    q = resource.add_parser("apply"); q.add_argument("resource"); add_json_value(q); q.add_argument("--yes", action="store_true")
+    q = resource.add_parser("patch"); q.add_argument("resource"); q.add_argument("pointer"); add_json_value(q); q.add_argument("--remove", action="store_true"); q.add_argument("--yes", action="store_true")
+    return p
+
+
+def require_yes(args: argparse.Namespace, reason: str) -> None:
+    if not args.dry_run and not getattr(args, "yes", False):
+        raise CLIError(f"{reason} requires --yes (or use --dry-run)", 2)
+
+
+def dispatch(args: argparse.Namespace) -> tuple[str, dict[str, Any], str | None]:
+    area, action = args.area, getattr(args, "action", None)
+    output: str | None = None
+    if area == "status": return "status", {}, None
+    if area == "accessibility": return f"accessibility.{action}", {}, None
+    if area == "selftest": return f"selftest.{action}", {}, None
+    if area == "schema": return "schema", {}, None
+    if area == "devices": return f"devices.{action}", {}, None
+    if area == "preset":
+        if action == "list" or action == "deactivate": return f"preset.{action}", {}, None
+        if action == "create": return "preset.create", {"name": args.name, "tag": args.tag}, None
+        if action in ("apply", "import", "validate"):
+            return f"preset.{action}", {"value": load_json_argument(args.value), "activate": args.activate}, None
+        if action == "patch":
+            current = invoke("preset.show", selector(args.preset), dry_run=False, timeout=args.timeout)
+            if not current.get("ok"): raise CLIError(current.get("message", "preset show failed"), 6)
+            patched = json_pointer_set(current.get("data"), args.pointer, load_json_argument(args.value), remove=args.remove)
+            return "preset.apply", {"value": patched}, None
+        payload = selector(args.preset)
+        if action == "export": output = args.output
+        return f"preset.{action}", payload, output
+    if area == "binding":
+        payload = selector(args.preset)
+        if action == "set": payload.update(value=load_json_argument(args.value), slot=args.slot)
+        elif action == "remove": payload["input"] = args.input
+        return f"binding.{action}", payload, None
+    if area == "group":
+        payload = {}
+        for key in ("id", "name", "color"):
+            if hasattr(args, key): payload[key] = getattr(args, key)
+        if action == "move": payload["parentID"] = args.parent_id
+        return f"group.{action}", payload, None
+    if area == "settings":
+        payload = {}
+        if action == "get" and args.key: payload["key"] = args.key
+        elif action == "set": payload = {"key": args.key, "value": load_json_argument(args.value)}
+        elif action == "reset":
+            if args.key is None: require_yes(args, "resetting all settings")
+            payload = ({"key": args.key} if args.key else {})
+        elif action == "login-item": payload = {"enabled": args.state == "on"}
+        return f"settings.{action}", payload, None
+    if area == "calibration":
+        return f"calibration.{action}", ({"value": load_json_argument(args.value)} if action == "set" else {}), None
+    if area == "region":
+        payload = {"kind": args.kind, "stick": args.stick}
+        if action == "apply": payload["value"] = load_json_argument(args.value)
+        if action == "delete": payload["id"] = args.id
+        return f"region.{action}", payload, None
+    if area == "backup":
+        if action == "export": return "backup.export", {}, args.output
+        require_yes(args, "backup restore")
+        return "backup.restore", {"value": load_json_argument(args.value)}, None
+    if area == "trash":
+        if action == "empty": require_yes(args, "emptying trash")
+        return f"trash.{action}", ({"id": args.id} if action == "restore" else {}), None
+    if area == "stats":
+        if action == "reset": require_yes(args, "resetting statistics")
+        return f"stats.{action}", {}, (args.output if action == "export" else None)
+    if area == "resource":
+        if action == "get": return "resource.get", {"resource": args.resource}, None
+        require_yes(args, f"resource {action}")
+        if action == "apply": return "resource.apply", {"resource": args.resource, "value": load_json_argument(args.value)}, None
+        current = invoke("resource.get", {"resource": args.resource}, dry_run=False, timeout=args.timeout)
+        if not current.get("ok"): raise CLIError(current.get("message", "resource get failed"), 6)
+        patched = json_pointer_set(current.get("data"), args.pointer, load_json_argument(args.value), remove=args.remove)
+        return "resource.apply", {"resource": args.resource, "value": patched}, None
+    raise CLIError("unsupported command", 2)
+
+
+def format_human(response: dict[str, Any]) -> str:
+    if not response.get("ok"):
+        return f"error [{response.get('code', 'unknown')}]: {response.get('message', '')}"
+    data = response.get("data")
+    if isinstance(data, (dict, list)):
+        return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
+    return str(data)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if args.timeout <= 0 or args.timeout > 300:
+            raise CLIError("--timeout must be greater than 0 and at most 300")
+        command, payload, output = dispatch(args)
+        response = invoke(command, payload, dry_run=args.dry_run, timeout=args.timeout)
+        if output and response.get("ok"):
+            atomic_write_json(Path(output).expanduser().resolve(), response.get("data"))
+        if args.json:
+            print(json.dumps(response, ensure_ascii=False, sort_keys=True))
+        elif output and response.get("ok"):
+            print(f"wrote {Path(output).expanduser().resolve()}")
+        else:
+            print(format_human(response))
+        if not response.get("ok"):
+            return 4 if response.get("code") in ("not_found", "ambiguous_name") else 6
+        return 0
+    except CLIError as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "code": "client_error", "message": str(exc)}, ensure_ascii=False))
+        else:
+            print(f"inputconfigctl: {exc}", file=sys.stderr)
+        return exc.exit_code
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

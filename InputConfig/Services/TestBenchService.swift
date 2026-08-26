@@ -89,6 +89,7 @@ final class TestBenchService: ObservableObject {
             ("MIDI Note C4", OutputAction(type: .midiNote, midiNote: 60, midiVelocity: 100, midiChannel: 1)),
             ("MIDI Modwheel", OutputAction(type: .midiCC, midiCCNumber: 1, midiCCValue: 127, midiChannel: 1)),
             ("MIDI PitchBend", OutputAction(type: .midiPitchBend, midiChannel: 5)),
+            ("Mission Control", OutputAction(type: .appAction, appActionKind: .missionControl)),
         ]
 
         for (label, original) in cases {
@@ -108,7 +109,8 @@ final class TestBenchService: ObservableObject {
                        parsed.midiNote == original.midiNote &&
                        parsed.midiVelocity == original.midiVelocity &&
                        parsed.midiCCNumber == original.midiCCNumber &&
-                       parsed.midiChannel == original.midiChannel
+                       parsed.midiChannel == original.midiChannel &&
+                       parsed.appActionKind == original.appActionKind
             record("OutputAction", label, pass: same,
                    detail: "\"\(serialized)\" \(same ? "round-trips correctly" : "did not match after parse")")
         }

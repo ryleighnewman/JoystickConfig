@@ -40,7 +40,7 @@ struct SettingsView: View {
     /// registered in AppState) so polling adapts to power out of the box.
     @AppStorage("InputConfig.autoPollHzByPower") private var autoPollByPower: Bool = true
     @AppStorage("InputConfig.pollHzOnAC") private var pollHzOnAC: Int = 120
-    @AppStorage("InputConfig.pollHzOnBattery") private var pollHzOnBattery: Int = 60
+    @AppStorage("InputConfig.pollHzOnBattery") private var pollHzOnBattery: Int = 120
 
     /// Live references to the reliability services so the freeze
     /// detection toggle and "last freeze" timestamp update in place.
@@ -304,7 +304,7 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .onChange(of: pollHzOnBattery) { _, _ in mappingEngine.applyPollRate() }
                         }
-                        Text("The engine switches between these rates the moment macOS reports a power-source change. Pick a lower rate for battery to stretch session time without restarting.")
+                        Text("The engine switches between these rates the moment macOS reports a power-source change. 120 Hz stays smooth on high-refresh displays; choose 60 Hz only when battery life matters more than pointer smoothness.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -506,7 +506,12 @@ class MappingEngine: ObservableObject {
         let rate: Int
         if autoSwitch {
             let acRate = defaults.object(forKey: "InputConfig.pollHzOnAC") as? Int ?? fallback
-            let battRate = defaults.object(forKey: "InputConfig.pollHzOnBattery") as? Int ?? 60
+            // Pointer-style presets need one input sample per display frame on
+            // a 120 Hz Mac. A 60 Hz battery fallback made stick-driven cursor
+            // motion visibly alternate between moving and waiting, which felt
+            // both heavy and choppy. Keep 120 Hz as the unset default on every
+            // power source; users can still opt into 60 Hz explicitly.
+            let battRate = defaults.object(forKey: "InputConfig.pollHzOnBattery") as? Int ?? 120
             let source = (SystemStatsService.shared.power.source ?? "").lowercased()
             rate = source.contains("battery") ? battRate : acRate
         } else {
@@ -1398,7 +1403,11 @@ class MappingEngine: ObservableObject {
                 }
             }
         }
-        for output in outputs {
+        // Chords are pressed modifier-first and must be released key-first.
+        // Reversing release order is also safe for independent multi-output
+        // bindings and prevents a held chord from briefly leaking a bare key.
+        let executionOutputs = press ? outputs : Array(outputs.reversed())
+        for output in executionOutputs {
             switch output.type {
             case .key:
                 if let code = output.keyCode {

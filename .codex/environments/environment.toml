@@ -1,0 +1,8 @@
+version = 1
+
+[environment]
+name = "InputConfig macOS"
+
+[[actions]]
+name = "Run"
+command = "./script/build_and_run.sh run"

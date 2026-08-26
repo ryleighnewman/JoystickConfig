@@ -1,5 +1,10 @@
 # InputConfig
 
+This local branch adds a versioned command-line interface. Build and run with
+`./script/build_and_run.sh run`; see `Tools/inputconfigctl --help`. The CLI
+uses atomic JSON request/response files in the user's Application Support and a Darwin
+notification, and supports dry runs plus full-fidelity Codable resources.
+
 InputConfig is a free, open-source controller mapper for macOS. It turns any game
 controller into a keyboard and mouse, so a gamepad can drive your whole Mac: browse the
 web, control apps, play games that never supported controllers, or replace a keyboard

@@ -243,6 +243,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     /// references to the store and engine and performs the same activation
     /// work for menu clicks, so the feature works with the window closed.
     func performAppAction(_ kind: AppActionKind, targetPresetID: UUID?) {
+        // Launch the system component directly instead of synthesizing the
+        // configurable Control+Up shortcut. This remains reliable when the
+        // user's Mission Control keyboard shortcut is changed or disabled.
+        if kind == .missionControl {
+            guard let url = NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: "com.apple.exposelauncher"
+            ) else { return }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in }
+            return
+        }
+
         guard let store = presetStore, let engine = mappingEngine else { return }
         switch kind {
         case .activatePreset:
@@ -272,6 +285,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             store.deactivateAll()
         case .togglePauseOutputs:
             engine.outputsPaused.toggle()
+        case .missionControl:
+            break // handled before the store/engine guard above
         }
     }
 

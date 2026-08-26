@@ -7,6 +7,11 @@ final class AppState: ObservableObject {
     let controllerService = GameControllerService()
     let eightBitDoDetector = EightBitDoDetector()
     lazy var mappingEngine = MappingEngine(controllerService: controllerService)
+    lazy var cliCommandService = CLICommandService(
+        presetStore: presetStore,
+        mappingEngine: mappingEngine,
+        controllerService: controllerService
+    )
     let crashRecovery = CrashRecoveryService.shared
     let freezeWatchdog = FreezeWatchdogService.shared
     let externalInput = ExternalInputDeviceService.shared
@@ -48,6 +53,9 @@ final class AppState: ObservableObject {
         // Boot the Accessibility-permission watcher so its trust state is
         // known at launch and refreshes when we return to the foreground.
         _ = accessibility
+        // Start the local, versioned filesystem CLI endpoint. It only accepts
+        // typed JSON inside this local build's shared Application Support.
+        _ = cliCommandService
         // Register the global "toggle most recent preset" hotkey if the user
         // turned it on in Settings, so it works app-wide from launch.
         if UserDefaults.standard.bool(forKey: GlobalHotKeyService.enabledDefaultsKey) {
@@ -58,6 +66,21 @@ final class AppState: ObservableObject {
         // was active at the time of the crash. Deferred to the next
         // run-loop tick so PresetStore has finished its disk load.
         DispatchQueue.main.async { [presetStore, crashRecovery, mappingEngine] in
+            if UserDefaults.standard.bool(forKey: "InputConfig.startup.autoActivate") {
+                guard let raw = UserDefaults.standard.string(forKey: "InputConfig.startup.presetID"),
+                      let id = UUID(uuidString: raw),
+                      let preset = presetStore.presets.first(where: { $0.id == id }) else {
+                    UserDefaults.standard.set("Configured startup preset is missing or invalid",
+                                              forKey: "InputConfig.startup.lastError")
+                    mappingEngine.stop()
+                    presetStore.deactivateAll(announce: false)
+                    return
+                }
+                UserDefaults.standard.removeObject(forKey: "InputConfig.startup.lastError")
+                presetStore.activatePreset(preset)
+                mappingEngine.start(with: preset)
+                return
+            }
             guard let id = crashRecovery.consumeRestoreTarget() else { return }
             if let preset = presetStore.presets.first(where: { $0.id == id }) {
                 presetStore.activatePreset(preset)
