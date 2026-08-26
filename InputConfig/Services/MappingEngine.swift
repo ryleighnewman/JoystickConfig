@@ -3,6 +3,42 @@ import Combine
 import AppKit
 import GameController
 
+/// State machine for a held turbo binding. The first active sample fires
+/// immediately, then the repeat phase starts after the user-facing initial
+/// delay. Each poll can produce at most one fire, so a delayed timer/poll
+/// cannot replay a backlog of missed intervals as a burst.
+struct TurboRepeatGate {
+    static let initialRepeatDelay: CFTimeInterval = 0.300
+
+    private var startedAt: CFTimeInterval?
+    private var lastFireAt: CFTimeInterval?
+
+    mutating func shouldFire(now: CFTimeInterval,
+                             interval: CFTimeInterval,
+                             isActive: Bool) -> Bool {
+        guard isActive else {
+            reset()
+            return false
+        }
+
+        guard let startedAt else {
+            self.startedAt = now
+            self.lastFireAt = now
+            return true
+        }
+
+        guard now - startedAt >= Self.initialRepeatDelay else { return false }
+        guard let lastFireAt, now - lastFireAt >= interval else { return false }
+        self.lastFireAt = now
+        return true
+    }
+
+    mutating func reset() {
+        startedAt = nil
+        lastFireAt = nil
+    }
+}
+
 /// The core engine that reads controller inputs and fires output actions.
 /// 120Hz polling with debug logging capability.
 @MainActor
@@ -58,11 +94,13 @@ class MappingEngine: ObservableObject {
 
     // Toggle mode state: tracks which bindings are currently toggled on
     private var toggleStates: [String: Bool] = [:]
-    // Turbo state: tracks last fire time for turbo bindings
-    /// Last fire time per turbo binding, expressed as CACurrentMediaTime
-    /// seconds (monotonic, allocation-free). Was previously [String: Date]
-    /// which forced a fresh Date() allocation on every turbo poll.
-    private var turboTimestamps: [String: CFTimeInterval] = [:]
+    // Turbo state: tracks the initial delay and last fire time per binding.
+    private var turboGates: [String: TurboRepeatGate] = [:]
+    /// App actions are edge-triggered system operations. A short debounce
+    /// protects them from controller bounce and from two poll frames observing
+    /// the same physical transition.
+    private var appActionTimestamps: [UUID: CFTimeInterval] = [:]
+    private let appActionDebounceInterval: CFTimeInterval = 0.300
     /// bindKeys whose macro chain is currently executing. Used to
     /// suppress a fresh executeMacro() call on a re-press while the
     /// previous chain is still running, preventing parallel macro
@@ -183,7 +221,7 @@ class MappingEngine: ObservableObject {
     /// Drop cached active-input / toggle / turbo / macro state for any
     /// controller slot that has gone out of range whenever the controller set
     /// changes. Without this, a controller that disconnects mid-press leaves
-    /// orphaned bindKeys in toggleStates + turboTimestamps + macrosInFlight;
+    /// orphaned bindKeys in toggleStates + turboGates + macrosInFlight;
     /// when the user reconnects to a different slot the same UUID is now under a
     /// fresh bindKey, but the OLD bindKey is still flagged "toggled on", which
     /// shows the binding as latched with no way to turn it off.
@@ -229,7 +267,7 @@ class MappingEngine: ObservableObject {
         if let maxRawSlot = controllerService.rawHIDGamepadSlots.keys.max() {
             validSlotCount = max(validSlotCount, maxRawSlot + 1)
         }
-        // Drop activeStates / toggleStates / turboTimestamps / macros
+        // Drop activeStates / toggleStates / turboGates / macros
         // for any slot index that no longer corresponds to a connected
         // controller. The dict keys are slot indices for activeStates,
         // and "\(slot):..." strings for the bindKey-keyed ones.
@@ -242,7 +280,7 @@ class MappingEngine: ObservableObject {
         let prefixes = (min(validSlotCount, 32)..<32).map { "\($0):" }
         for prefix in prefixes {
             toggleStates = toggleStates.filter { !$0.key.hasPrefix(prefix) }
-            turboTimestamps = turboTimestamps.filter { !$0.key.hasPrefix(prefix) }
+            turboGates = turboGates.filter { !$0.key.hasPrefix(prefix) }
             macrosInFlight = macrosInFlight.filter { !$0.hasPrefix(prefix) }
         }
         // Release all simulated outputs whenever a controller slot actually
@@ -262,6 +300,8 @@ class MappingEngine: ObservableObject {
             // and UI agree (one extra press to re-toggle beats stuck half-on).
             activeStates.removeAll()
             toggleStates.removeAll()
+            turboGates.removeAll()
+            appActionTimestamps.removeAll()
             deferredPressStart.removeAll()
             holdFired.removeAll()
             lastTapTime.removeAll()
@@ -295,7 +335,8 @@ class MappingEngine: ObservableObject {
         activeStates.removeAll()
         activeInputs.removeAll()
         toggleStates.removeAll()
-        turboTimestamps.removeAll()
+        turboGates.removeAll()
+        appActionTimestamps.removeAll()
         macrosInFlight.removeAll()
         serializedKeyCache.removeAll()
         bindKeyCache.removeAll()
@@ -580,7 +621,8 @@ class MappingEngine: ObservableObject {
         // Clear deferred state so a future start() with a different
         // preset doesn't see stale toggle / turbo / cache entries.
         toggleStates.removeAll()
-        turboTimestamps.removeAll()
+        turboGates.removeAll()
+        appActionTimestamps.removeAll()
         macrosInFlight.removeAll()
         serializedKeyCache.removeAll()
         bindKeyCache.removeAll()
@@ -770,7 +812,7 @@ class MappingEngine: ObservableObject {
                 // bindKey is keyed by binding UUID so two distinct
                 // bindings on the same physical input (e.g. one toggle,
                 // one turbo, or two different macros) don't share
-                // toggleStates / turboTimestamps entries. Previously
+                // toggleStates / turboGates entries. Previously
                 // bindKey was "\(joystickIndex):\(inputKey)" which
                 // collided when the user added a second binding on
                 // the same input. Only the toggle / turbo / macro paths read
@@ -852,8 +894,10 @@ class MappingEngine: ObservableObject {
                         // turbo entirely. 1 Hz floor / 60 Hz ceiling.
                         let rate = max(1, min(60, binding.turboRate ?? 10))
                         let interval = 1.0 / Double(rate)
-                        let lastFire = turboTimestamps[bindKey] ?? -.infinity
-                        if nowMonotonic - lastFire >= interval {
+                        var turboGate = turboGates[bindKey] ?? TurboRepeatGate()
+                        if turboGate.shouldFire(now: nowMonotonic,
+                                                interval: interval,
+                                                isActive: true) {
                             fireOutputs(binding.outputs, press: true, inputIsAxis: inputIsAxis)
                             // Schedule release after ~40% of the interval.
                             // Capture engineGeneration so a stop() between
@@ -867,15 +911,15 @@ class MappingEngine: ObservableObject {
                                 guard let self = self, self.engineGeneration == gen else { return }
                                 self.fireOutputs(outputs, press: false, inputIsAxis: axisFlag)
                             }
-                            turboTimestamps[bindKey] = nowMonotonic
                         }
+                        turboGates[bindKey] = turboGate
                         if let s = state {
                             fireContinuousOutputs(binding.outputs, input: binding.input, state: s, binding: binding)
                         }
                     } else if wasActive {
                         log("TURBO END: \(inputKey)", joystick: joystickIndex)
                         fireOutputs(binding.outputs, press: false, inputIsAxis: inputIsAxis)
-                        turboTimestamps.removeValue(forKey: bindKey)
+                        turboGates.removeValue(forKey: bindKey)
                     }
                 } else {
                     // Normal mode
@@ -1384,6 +1428,15 @@ class MappingEngine: ObservableObject {
         // restarts the engine, which must not happen mid-poll.
         if press {
             for output in outputs where output.type == .appAction {
+                let now = CACurrentMediaTime()
+                if let last = appActionTimestamps[output.id],
+                   now - last < appActionDebounceInterval {
+                    if debugEnabled {
+                        log("APP ACTION SUPPRESSED: \(output.serialized)")
+                    }
+                    continue
+                }
+                appActionTimestamps[output.id] = now
                 let kind = output.appActionKind ?? .togglePauseOutputs
                 let target = output.targetPresetID
                 DispatchQueue.main.async {

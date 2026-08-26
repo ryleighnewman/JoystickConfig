@@ -755,7 +755,7 @@ struct BindingRowView: View {
         (11, "L3 (left stick click)"),
         (12, "R3 (right stick click)"),
         (13, "Touchpad press"),
-        (14, "Share (where exposed)"),
+        (14, "Create / Share (where exposed)"),
         (15, "Microphone / Mute"),
         (16, "Left Paddle"),
         (17, "Right Paddle"),

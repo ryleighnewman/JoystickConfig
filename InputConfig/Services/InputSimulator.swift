@@ -52,7 +52,7 @@ final class InputSimulator: @unchecked Sendable {
 
     // MARK: - Keyboard Simulation
 
-    func keyDown(_ hidCode: Int) {
+    func keyDown(_ hidCode: Int, additionalFlags: CGEventFlags = []) {
         guard !pressedKeys.contains(hidCode) else { return }
         pressedKeys.insert(hidCode)
 
@@ -63,8 +63,20 @@ final class InputSimulator: @unchecked Sendable {
                 // Cmd+C (Cmd held, then C pressed) fired C as a bare key because
                 // the C event carried no modifier flags, so combo outputs like
                 // Copy, the screenshot shortcuts, and Cmd+Shift+Z did nothing.
-                let flags = currentModifierFlags()
-                if !flags.isEmpty { event.flags = flags }
+                let flags = flagsForKeyboardEvent(hidCode)
+                // Modifier-only shortcuts (notably Codex Appshot's left+right
+                // Command gesture) can produce two flagsChanged events with
+                // the same aggregate Command flag. Mark every keyboard event
+                // non-coalesced so WindowServer preserves the second event's
+                // distinct left/right virtual key code.
+                event.flags = flags.union(additionalFlags).union(.maskNonCoalesced)
+                // Quartz creates keyboard events as keyDown/keyUp even when
+                // the virtual key is itself a modifier. AppKit's global
+                // modifier monitors (including Codex Appshot) subscribe to
+                // flagsChanged, so use the native macOS event type here.
+                if Self.modifierHIDCodes.contains(hidCode) {
+                    event.type = .flagsChanged
+                }
                 taggedPost(event)
             }
         } else {
@@ -72,7 +84,7 @@ final class InputSimulator: @unchecked Sendable {
         }
     }
 
-    func keyUp(_ hidCode: Int) {
+    func keyUp(_ hidCode: Int, additionalFlags: CGEventFlags = []) {
         guard pressedKeys.contains(hidCode) else { return }
         pressedKeys.remove(hidCode)
 
@@ -80,8 +92,11 @@ final class InputSimulator: @unchecked Sendable {
             if let event = CGEvent(keyboardEventSource: eventSource, virtualKey: CGKeyCode(virtualCode), keyDown: false) {
                 // Carry the still-held modifiers so releasing the letter of a
                 // chord (e.g. the C of Cmd+C) does not read as a bare key-up.
-                let flags = currentModifierFlags()
-                if !flags.isEmpty { event.flags = flags }
+                let flags = flagsForKeyboardEvent(hidCode)
+                event.flags = flags.union(additionalFlags).union(.maskNonCoalesced)
+                if Self.modifierHIDCodes.contains(hidCode) {
+                    event.type = .flagsChanged
+                }
                 taggedPost(event)
             }
         } else {
@@ -139,6 +154,26 @@ final class InputSimulator: @unchecked Sendable {
         }
     }
 
+    /// Device-dependent flags identify which side of a modifier changed.
+    /// AppKit preserves these low bits in `NSEvent.modifierFlags`, and
+    /// Codex's DoubleCommand monitor uses them to distinguish the left and
+    /// right Command keys. The aggregate `.maskCommand` bit alone is not
+    /// enough: both synthetic transitions otherwise look like the same
+    /// modifier and the monitor never reaches its two-key state.
+    private func deviceModifierFlags(for hidCode: Int) -> CGEventFlags? {
+        switch hidCode {
+        case 224: return CGEventFlags(rawValue: 0x0001) // NX_DEVICELCTLKEYMASK
+        case 225: return CGEventFlags(rawValue: 0x0002) // NX_DEVICELSHIFTKEYMASK
+        case 229: return CGEventFlags(rawValue: 0x0004) // NX_DEVICERSHIFTKEYMASK
+        case 227: return CGEventFlags(rawValue: 0x0008) // NX_DEVICELCMDKEYMASK
+        case 231: return CGEventFlags(rawValue: 0x0010) // NX_DEVICERCMDKEYMASK
+        case 226: return CGEventFlags(rawValue: 0x0020) // NX_DEVICELALTKEYMASK
+        case 230: return CGEventFlags(rawValue: 0x0040) // NX_DEVICERALTKEYMASK
+        case 228: return CGEventFlags(rawValue: 0x2000) // NX_DEVICERCTLKEYMASK
+        default: return nil
+        }
+    }
+
     /// Union of the modifier flags for every modifier key currently held in
     /// `pressedKeys`. Applied to every synthesized key event so chords such as
     /// Cmd+C, Cmd+Shift+3, and Option+[ register with their modifiers instead
@@ -147,8 +182,62 @@ final class InputSimulator: @unchecked Sendable {
         var flags: CGEventFlags = []
         for code in pressedKeys {
             if let f = modifierFlags(for: code) { flags.insert(f) }
+            if let f = deviceModifierFlags(for: code) { flags.formUnion(f) }
         }
         return flags
+    }
+
+    private static let modifierHIDCodes: Set<Int> = [
+        224, 225, 226, 227, // left Control, Shift, Option, Command
+        228, 229, 230, 231, // right Control, Shift, Option, Command
+    ]
+
+    /// macOS marks the four arrow keys as numeric-pad keys. The symbolic
+    /// Application Windows shortcut is stored as Control + Down + this flag;
+    /// omitting it produces a visually identical arrow event that does not
+    /// match the system shortcut.
+    private static let arrowHIDCodes: Set<Int> = [79, 80, 81, 82]
+
+    /// macOS's Application Windows symbolic hotkey is stored as Control +
+    /// Down Arrow with the secondary-Fn bit. A physically generated arrow
+    /// carries this bit even though it is not visible in the shortcut's
+    /// label; omitting it makes the event look like an ordinary Control+Down
+    /// key press and leaves Application Exposé closed.
+    private static let applicationWindowsArrowFlags = CGEventFlags(rawValue: 0x0080_0000)
+
+    private func flagsForKeyboardEvent(_ hidCode: Int) -> CGEventFlags {
+        var flags = currentModifierFlags()
+        if Self.arrowHIDCodes.contains(hidCode) {
+            flags.insert(.maskNumericPad)
+        }
+        return flags
+    }
+
+    /// Emit Codex Appshot's native left-Command + right-Command gesture.
+    /// Codex listens for the two modifier transitions as flagsChanged events;
+    /// a function-key surrogate is not part of that contract.
+    func tapCodexAppshotHotkey() {
+        let leftCommandHIDCode = 227
+        let rightCommandHIDCode = 231
+        keyDown(leftCommandHIDCode)
+        keyDown(rightCommandHIDCode)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.080) { [weak self] in
+            self?.keyUp(rightCommandHIDCode)
+            self?.keyUp(leftCommandHIDCode)
+        }
+    }
+
+    /// Open Application Expose (the frontmost application's window list),
+    /// equivalent to the four-finger downward trackpad gesture.
+    func tapApplicationWindowsHotkey() {
+        let leftControlHIDCode = 224
+        let downArrowHIDCode = 81
+        keyDown(leftControlHIDCode)
+        keyDown(downArrowHIDCode, additionalFlags: Self.applicationWindowsArrowFlags)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.080) { [weak self] in
+            self?.keyUp(downArrowHIDCode, additionalFlags: Self.applicationWindowsArrowFlags)
+            self?.keyUp(leftControlHIDCode)
+        }
     }
 
     /// HID code → NSEvent.subtype:systemDefined NX key code. Static so
@@ -259,8 +348,33 @@ final class InputSimulator: @unchecked Sendable {
         let currentPoint = CGPoint(x: location.x, y: screenHeight - location.y)
         let newPoint = CGPoint(x: currentPoint.x + CGFloat(deltaX), y: currentPoint.y + CGFloat(deltaY))
 
-        if let event = CGEvent(mouseEventSource: eventSource, mouseType: .mouseMoved,
-                               mouseCursorPosition: newPoint, mouseButton: .left) {
+        // macOS selection UIs (including `screencapture -i -s`) distinguish a
+        // cursor move from a drag by the CGEvent type.  When a controller
+        // button is mapped to a mouse button, the stick movement must continue
+        // that button as a dragged event; posting `.mouseMoved` here leaves the
+        // button logically down but never starts a selection rectangle.
+        let dragButton = pressedMouseButtons.contains(0) ? 0
+            : pressedMouseButtons.contains(1) ? 1
+            : pressedMouseButtons.first
+        let eventType: CGEventType
+        let eventButton: CGMouseButton
+        switch dragButton {
+        case 0:
+            eventType = .leftMouseDragged
+            eventButton = .left
+        case 1:
+            eventType = .rightMouseDragged
+            eventButton = .right
+        case let button?:
+            eventType = .otherMouseDragged
+            eventButton = cgMouseButton(for: button) ?? .left
+        default:
+            eventType = .mouseMoved
+            eventButton = .left
+        }
+
+        if let event = CGEvent(mouseEventSource: eventSource, mouseType: eventType,
+                               mouseCursorPosition: newPoint, mouseButton: eventButton) {
             event.setIntegerValueField(.mouseEventDeltaX, value: Int64(deltaX))
             event.setIntegerValueField(.mouseEventDeltaY, value: Int64(deltaY))
             taggedPost(event)
@@ -520,6 +634,8 @@ final class InputSimulator: @unchecked Sendable {
     func scrollWheel(deltaX: Int32, deltaY: Int32) {}
     func scrollWheelStep(axis: MouseAxis, direction: MouseDirection) {}
     func releaseAll() {}
+    func tapCodexAppshotHotkey() {}
+    func tapApplicationWindowsHotkey() {}
 
     static func runDiagnostic() -> String { "iOS: Not supported" }
 }

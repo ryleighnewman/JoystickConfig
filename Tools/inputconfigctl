@@ -180,6 +180,10 @@ def parser() -> argparse.ArgumentParser:
     accessibility.add_parser("request")
     selftest = sub.add_parser("selftest").add_subparsers(dest="action", required=True)
     selftest.add_parser("run"); selftest.add_parser("status")
+    actions = sub.add_parser("action").add_subparsers(dest="action", required=True)
+    q = actions.add_parser("perform")
+    q.add_argument("kind", choices=("application-windows", "codex-appshot",
+                                    "selection-screenshot-to-clipboard", "mission-control"))
     devices = sub.add_parser("devices").add_subparsers(dest="action", required=True)
     devices.add_parser("list"); devices.add_parser("state")
 
@@ -254,6 +258,7 @@ def dispatch(args: argparse.Namespace) -> tuple[str, dict[str, Any], str | None]
     if area == "status": return "status", {}, None
     if area == "accessibility": return f"accessibility.{action}", {}, None
     if area == "selftest": return f"selftest.{action}", {}, None
+    if area == "action": return "action.perform", {"kind": args.kind}, None
     if area == "schema": return "schema", {}, None
     if area == "devices": return f"devices.{action}", {}, None
     if area == "preset":

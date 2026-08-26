@@ -44,6 +44,7 @@ final class TestBenchService: ObservableObject {
 
         runOutputActionTests()
         runInputEventTests()
+        runTurboTimingTests()
         runSensitivityCurveTests()
         runMIDIByteLayoutTests()
         runControllerBrandTests()
@@ -90,6 +91,8 @@ final class TestBenchService: ObservableObject {
             ("MIDI Modwheel", OutputAction(type: .midiCC, midiCCNumber: 1, midiCCValue: 127, midiChannel: 1)),
             ("MIDI PitchBend", OutputAction(type: .midiPitchBend, midiChannel: 5)),
             ("Mission Control", OutputAction(type: .appAction, appActionKind: .missionControl)),
+            ("Application Windows", OutputAction(type: .appAction, appActionKind: .applicationWindows)),
+            ("Codex Appshot", OutputAction(type: .appAction, appActionKind: .codexAppshot)),
             ("Selection Screenshot", OutputAction(type: .appAction, appActionKind: .selectionScreenshotToClipboard)),
         ]
 
@@ -139,6 +142,45 @@ final class TestBenchService: ObservableObject {
                    detail: ok ? "\"\(serialized)\" round-trips correctly"
                               : "Mismatch parsing \"\(serialized)\"")
         }
+    }
+
+    // MARK: - 3. Turbo Timing Tests
+
+    private func runTurboTimingTests() {
+        let interval = 1.0 / 15.0
+        var gate = TurboRepeatGate()
+
+        let first = gate.shouldFire(now: 0.0, interval: interval, isActive: true)
+        let beforeInitialDelay = gate.shouldFire(now: 0.299, interval: interval, isActive: true)
+        let firstRepeat = gate.shouldFire(
+            now: TurboRepeatGate.initialRepeatDelay + 0.001,
+            interval: interval,
+            isActive: true
+        )
+        record("Turbo", "Immediate first fire / 300 ms delay",
+               pass: first && !beforeInitialDelay && firstRepeat,
+               detail: "first=\(first), beforeDelay=\(beforeInitialDelay), firstRepeat=\(firstRepeat)")
+
+        let scheduledRepeat = gate.shouldFire(
+            now: TurboRepeatGate.initialRepeatDelay + interval + 0.002,
+            interval: interval,
+            isActive: true
+        )
+        record("Turbo", "Configured-rate repeat", pass: scheduledRepeat,
+               detail: "15 Hz interval=\(interval)s")
+
+        // A long scheduling/poll gap must create one fire at the next sample,
+        // never one fire for every missed interval.
+        let afterLongGap = gate.shouldFire(now: 10.0, interval: interval, isActive: true)
+        let burstAfterGap = gate.shouldFire(now: 10.001, interval: interval, isActive: true)
+        record("Turbo", "No burst after long polling gap",
+               pass: afterLongGap && !burstAfterGap,
+               detail: "afterGap=\(afterLongGap), immediateNextSample=\(burstAfterGap)")
+
+        let released = !gate.shouldFire(now: 11.0, interval: interval, isActive: false)
+        let nextPress = gate.shouldFire(now: 12.0, interval: interval, isActive: true)
+        record("Turbo", "Release resets next press", pass: released && nextPress,
+               detail: "released=\(released), nextPressImmediate=\(nextPress)")
     }
 
     // MARK: - 3. Sensitivity Curve Tests
@@ -944,7 +986,7 @@ final class TestBenchService: ObservableObject {
     /// by activating a preset and watching a target app receive the
     /// keystrokes.
     private func runKeyboardOutputLoopbackTest() async {
-        let probeHidCode = 111 // F20 - virtually no app reacts to this.
+        let probeHidCode = 226 // Left Option: modifier-only probe, no text insertion.
 
         let testSource = CGEventSource(stateID: .hidSystemState)
         record("Keyboard Output",

@@ -848,8 +848,10 @@ final class TouchpadService: @unchecked Sendable {
     }
 
     /// Format: "T <seq> <btn> <f0Active> <f0Id> <f0X> <f0Y> <f1Active> <f1Id> <f1X> <f1Y> <kind>"
-    /// Also:   "B <buttons2> <kind>" - the raw PS/mute/Edge-extras byte,
-    /// emitted by the helper only when it changes.
+    /// Also:   "B <buttons1> <buttons2> <kind>" - the raw DualSense button
+    /// bytes, emitted by the helper only when either byte changes. The older
+    /// two-field form is accepted for compatibility with an already-running
+    /// helper during an app upgrade.
     private func handleLine(_ line: String) {
         let parts = line.split(separator: " ").map(String.init)
         // Surface non-T messages from the helper so we can see startup
@@ -861,8 +863,19 @@ final class TouchpadService: @unchecked Sendable {
         if parts.first != "T" {
             NSLog("[TouchpadHelper STDOUT] %@", line)
         }
-        if parts.first == "B", parts.count >= 2, let b2 = UInt8(parts[1]) {
-            DualSenseSupplementService.shared.ingestHelperButtons2(b2)
+        if parts.first == "B", parts.count >= 2 {
+            let b1: UInt8
+            let b2: UInt8
+            if parts.count >= 3, let parsedB1 = UInt8(parts[1]), let parsedB2 = UInt8(parts[2]) {
+                b1 = parsedB1
+                b2 = parsedB2
+            } else if let parsedB2 = UInt8(parts[1]) {
+                b1 = 0
+                b2 = parsedB2
+            } else {
+                return
+            }
+            DualSenseSupplementService.shared.ingestHelperButtons2(b2, buttons1: b1)
             return
         }
         guard parts.first == "T", parts.count >= 11,

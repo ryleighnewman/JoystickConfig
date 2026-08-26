@@ -26,12 +26,16 @@ final class DualSenseSupplementService: @unchecked Sendable {
     /// Logical button slots the supplement publishes. These match the
     /// indices `cacheExtraButtons` reserves so the binding pipeline
     /// can pick them up without remapping.
+    ///   13 = Touchpad click
+    ///   14 = Create / Share
     ///   15 = Microphone / Mute
     ///   16 = Left Paddle
     ///   17 = Right Paddle
     ///   20 = FN1 (left function)
     ///   21 = FN2 (right function)
     enum SupplementButton: Int {
+        case touchpad = 13
+        case create = 14
         case mute = 15
         case leftPaddle = 16
         case rightPaddle = 17
@@ -315,8 +319,9 @@ final class DualSenseSupplementService: @unchecked Sendable {
             }
         }
 
-        // buttons[2] of the report payload carries PS/Home (bit 0),
-        // touchpad press (bit 1), Mute (bit 2), and on the DualSense
+        // buttons[1] of the report payload carries Create (bit 4), and
+        // buttons[2] carries PS/Home (bit 0), touchpad press (bit 1),
+        // Mute (bit 2), and on the DualSense
         // Edge the four extra hardware buttons in the high nibble.
         // The IOHID input buffer includes the report ID at [0], so:
         //   USB report 0x01: payload starts at [1], buttons[2] = [10].
@@ -331,15 +336,18 @@ final class DualSenseSupplementService: @unchecked Sendable {
         //     nothing (power-cycling the controller clears it), which
         //     is where the old "Bluetooth gives zero reports" belief
         //     came from.
+        let b1: UInt8
         let b2: UInt8
         if reportPointer[0] == 0x01 {
+            b1 = reportPointer[9]
             b2 = reportPointer[10]
         } else if reportPointer[0] == 0x31 && length >= 12 {
+            b1 = reportPointer[10]
             b2 = reportPointer[11]
         } else {
             return
         }
-        applyButtons2(b2, locationID: locationID)
+        applyButtons2(b2, locationID: locationID, buttons1: b1)
     }
 
     /// Sentinel location key for the TouchpadHelper-fed state, so it can
@@ -350,12 +358,16 @@ final class DualSenseSupplementService: @unchecked Sendable {
     /// Bluetooth the app's own HID open receives no input reports while its
     /// GameController session is active, but the external helper process
     /// does - so this is how the Edge extras arrive on BT.
-    func ingestHelperButtons2(_ b2: UInt8) {
-        applyButtons2(b2, locationID: Self.helperLocationKey)
+    func ingestHelperButtons2(_ b2: UInt8, buttons1: UInt8 = 0) {
+        applyButtons2(b2, locationID: Self.helperLocationKey, buttons1: buttons1)
     }
 
     /// Decode one buttons[2] byte into the supplemental button snapshot.
-    private func applyButtons2(_ b2: UInt8, locationID: UInt64) {
+    private func applyButtons2(_ b2: UInt8,
+                               locationID: UInt64,
+                               buttons1: UInt8 = 0) {
+        let createDown = (buttons1 & 0x10) != 0
+        let touchpadDown = (b2 & 0x02) != 0
         let psDown   = (b2 & 0x01) != 0
         let muteDown = (b2 & 0x04) != 0
         // DualSense Edge extras, per the Linux hid-playstation driver
@@ -368,6 +380,8 @@ final class DualSenseSupplementService: @unchecked Sendable {
         let rPaddle  = (b2 & 0x80) != 0
 
         var snapshot: [Int: Float] = [:]
+        snapshot[SupplementButton.touchpad.rawValue]      = touchpadDown ? 1.0 : 0.0
+        snapshot[SupplementButton.create.rawValue]         = createDown ? 1.0 : 0.0
         // Index 10 = Home/PS - merging here lets us fire the binding
         // even when Apple's GameController framework swallows the PS
         // event for system-level Game Mode handling on macOS 26+.
@@ -388,9 +402,10 @@ final class DualSenseSupplementService: @unchecked Sendable {
         // it stays silent during the 130-250 Hz report stream while
         // giving `log stream` visibility into exactly which raw bits
         // the controller sends - the tool that finally mapped the Edge.
-        if changed && b2 != 0 {
-            NSLog("[DualSenseSupplement] buttons2=0x%02X ps=%d mute=%d fnL=%d fnR=%d padL=%d padR=%d",
-                  b2, psDown ? 1 : 0, muteDown ? 1 : 0, fnLeft ? 1 : 0,
+        if changed && (buttons1 != 0 || b2 != 0) {
+            NSLog("[DualSenseSupplement] buttons1=0x%02X buttons2=0x%02X create=%d touchpad=%d ps=%d mute=%d fnL=%d fnR=%d padL=%d padR=%d",
+                  buttons1, b2, createDown ? 1 : 0, touchpadDown ? 1 : 0,
+                  psDown ? 1 : 0, muteDown ? 1 : 0, fnLeft ? 1 : 0,
                   fnRight ? 1 : 0, lPaddle ? 1 : 0, rPaddle ? 1 : 0)
         }
     }
@@ -466,15 +481,19 @@ final class DualSenseSupplementService: @unchecked Sendable {
                 guard gr == kIOReturnSuccess, len > 11 else { continue }
                 // GetReport buffers carry the same layout as the streamed
                 // callback buffer: report ID at [0].
+                let b1: UInt8
                 let b2: UInt8
                 if buf[0] == 0x31 {
+                    guard len > 11 else { continue }
+                    b1 = buf[10]
                     b2 = buf[11]
                 } else if buf[0] == 0x01 && len > 10 {
+                    b1 = buf[9]
                     b2 = buf[10]
                 } else {
                     continue
                 }
-                applyButtons2(b2, locationID: location)
+                applyButtons2(b2, locationID: location, buttons1: b1)
                 break
             }
         }

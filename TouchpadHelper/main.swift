@@ -13,10 +13,8 @@
 ///     <f1Active> <f1Id> <f1X> <f1Y> \
 ///     <controller>
 ///
-/// Additionally, whenever the PS/mute/extras button byte (buttons[2] of the
-/// Sony report, which also carries the DualSense Edge paddle and FN bits in
-/// its high nibble) CHANGES, a line:
-///   B <buttons2decimal> <controller>
+/// Additionally, whenever the DualSense button bytes change, a line:
+///   B <buttons1decimal> <buttons2decimal> <controller>
 /// With `--buttons-only`, T lines are suppressed and only B lines are
 /// emitted. The main app uses this mode on macOS 14+, where GameController
 /// provides touch data but the Edge extras are only visible to an external
@@ -73,6 +71,9 @@ final class DeviceCtx {
     var didEnableBTReports = false
     /// Last buttons[2] value emitted on a B line, so we only emit on change.
     var lastButtons2: UInt8 = 0
+    /// Last buttons[1] value emitted on a B line. This carries Create / Share
+    /// on DualSense and is needed by the app-action binding at index 14.
+    var lastButtons1: UInt8 = 0
     var emittedInitialButtons = false
 
     init(device: IOHIDDevice, pid: Int32, isBT: Bool, kind: String) {
@@ -123,6 +124,7 @@ let inputCallback: IOHIDReportCallback = { context, _, _, reportType, reportID, 
     // relative to the start of the IOHID input buffer (no report-ID prefix).
     var blockOffset = 0
     var buttonByte = 0
+    var createButtonByte = 0
     let buttonMask: UInt8 = 0x02     // touchpad-click bit for DS5; same bit for DS4 in correct byte
 
     if dualSensePIDs.contains(ctx.pid) {
@@ -140,20 +142,25 @@ let inputCallback: IOHIDReportCallback = { context, _, _, reportType, reportID, 
             guard reportID == 0x01, reportLength >= 41 else { return }
             blockOffset = 33
             buttonByte = 10
+            createButtonByte = 9
         } else {
             guard reportID == 0x31, reportLength >= 43 else { return }
             blockOffset = 34
             buttonByte = 11
+            createButtonByte = 10
         }
-        // Emit the extras byte on change. buttons[2]: PS bit 0, touchpad
+        // Emit the button bytes on change. buttons[1] carries Create, while
+        // buttons[2] carries PS bit 0, touchpad
         // click bit 1, mute bit 2; DualSense Edge FN-L/FN-R/paddle-L/
         // paddle-R at bits 4/5/6/7.
-        if reportLength > buttonByte {
+        if reportLength > buttonByte, reportLength > createButtonByte {
+            let b1 = report[createButtonByte]
             let b2 = report[buttonByte]
-            if !ctx.emittedInitialButtons || b2 != ctx.lastButtons2 {
+            if !ctx.emittedInitialButtons || b1 != ctx.lastButtons1 || b2 != ctx.lastButtons2 {
                 ctx.emittedInitialButtons = true
+                ctx.lastButtons1 = b1
                 ctx.lastButtons2 = b2
-                emit("B \(b2) \(ctx.kind)")
+                emit("B \(b1) \(b2) \(ctx.kind)")
             }
         }
         if buttonsOnly { return }

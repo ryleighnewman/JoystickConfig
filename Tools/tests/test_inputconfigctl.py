@@ -46,6 +46,19 @@ class InputConfigCTLTests(unittest.TestCase):
             args = ctl.parser().parse_args(["selftest", action])
             self.assertEqual(ctl.dispatch(args), (f"selftest.{action}", {}, None))
 
+    def test_action_perform_dispatch(self):
+        for kind in (
+            "application-windows",
+            "codex-appshot",
+            "selection-screenshot-to-clipboard",
+            "mission-control",
+        ):
+            args = ctl.parser().parse_args(["action", "perform", kind])
+            self.assertEqual(
+                ctl.dispatch(args),
+                ("action.perform", {"kind": kind}, None),
+            )
+
     def test_default_protocol_root_is_shared_application_support(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("INPUTCONFIG_CLI_ROOT", None)

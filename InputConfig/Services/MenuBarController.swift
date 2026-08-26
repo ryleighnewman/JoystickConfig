@@ -22,6 +22,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private weak var mappingEngine: MappingEngine?
     private weak var controllerService: GameControllerService?
     private var cancellables: Set<AnyCancellable> = []
+    /// Retain the interactive screencapture process for the lifetime of the
+    /// selection UI. Keeping a single process reference also makes repeated
+    /// controller samples harmless while the user is selecting a rectangle.
+    private var selectionScreenshotProcess: Process?
     /// Watches the menu bar's light/dark appearance so the running (green)
     /// glyph can switch shades the way template menu bar icons auto-invert.
     private var appearanceObservation: NSKeyValueObservation?
@@ -256,15 +260,70 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             return
         }
 
+        // App Expose is not Mission Control: it shows only the frontmost
+        // application's windows. Send the standard Control+Down shortcut
+        // directly. AXExposeShowFrontWindows reports success on current macOS
+        // even when Dock does nothing, so it cannot be used as a reliable
+        // success/fallback probe.
+        if kind == .applicationWindows {
+            InputSimulator.shared.tapApplicationWindowsHotkey()
+            return
+        }
+
+        if kind == .codexAppshot {
+            InputSimulator.shared.tapCodexAppshotHotkey()
+            return
+        }
+
         // Invoke the system screenshot tool directly rather than posting a
         // synthetic Command+Shift+Control+4 chord. Synthetic modifier chords
         // are not consistently accepted by the screenshot agent, while this
         // is the underlying selection-to-clipboard operation itself.
         if kind == .selectionScreenshotToClipboard {
+            if let existing = selectionScreenshotProcess, existing.isRunning {
+                NSLog("InputConfig ignoring duplicate screenshot request while selection is active")
+                return
+            }
+
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            process.arguments = ["-c", "-i", "-s"]
-            try? process.run()
+            // Interactive rectangle selection, restricted selection mode, and
+            // clipboard output. The process must stay alive until the user
+            // completes or cancels the selection.
+            process.arguments = ["-i", "-s", "-c"]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            let errorPipe = Pipe()
+            process.standardError = errorPipe
+            let processID = ObjectIdentifier(process)
+            process.terminationHandler = { finished in
+                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let detail = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let status = finished.terminationStatus
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let current = self.selectionScreenshotProcess,
+                          ObjectIdentifier(current) == processID else { return }
+                    self.selectionScreenshotProcess = nil
+                    switch status {
+                    case 0:
+                        NSLog("InputConfig screencapture finished successfully")
+                    case 1:
+                        NSLog("InputConfig screencapture cancelled by user")
+                    default:
+                        NSLog("InputConfig screencapture failed (%d): %@", status, detail)
+                    }
+                }
+            }
+            selectionScreenshotProcess = process
+            do {
+                try process.run()
+                NSLog("InputConfig launched interactive selection screenshot")
+            } catch {
+                selectionScreenshotProcess = nil
+                NSLog("InputConfig could not launch screencapture: %@", error.localizedDescription)
+            }
             return
         }
 
@@ -298,6 +357,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case .togglePauseOutputs:
             engine.outputsPaused.toggle()
         case .missionControl:
+            break // handled before the store/engine guard above
+        case .applicationWindows:
+            break // handled before the store/engine guard above
+        case .codexAppshot:
             break // handled before the store/engine guard above
         case .selectionScreenshotToClipboard:
             break // handled before the store/engine guard above

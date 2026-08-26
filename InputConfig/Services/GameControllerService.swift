@@ -372,12 +372,13 @@ class GameControllerService: ObservableObject {
     /// Friendly name to show on each extra-button chip. Prefers the
     /// runtime's localizedName, falls back to a static map by index.
     private static func labelForExtraButton(index: Int, button: GCControllerButtonInput) -> String {
+        if index == 14 { return "Create / Share" }
         if let localized = button.localizedName, !localized.isEmpty {
             return localized
         }
         switch index {
         case 13: return "Touchpad"
-        case 14: return "Share"
+        case 14: return "Create / Share"
         case 15: return "Microphone"
         case 16: return "Left Paddle"
         case 17: return "Right Paddle"
@@ -620,7 +621,7 @@ class GameControllerService: ObservableObject {
             installPhysicalPressLogger(for: controller, slot: index)
             activateMotionSensors(for: controller)
             installTouchpadHandlers(for: controller, slot: index)
-            installLiveInputHandler(for: controller)
+            installLiveInputHandler(for: controller, slot: index)
             controllerNames[index] = controller.vendorName ?? "Controller \(index)"
             controllerDetails[index] = buildControllerInfo(controller)
 
@@ -1163,9 +1164,9 @@ class GameControllerService: ObservableObject {
         motionScanFiredThisGesture = false
         // Remove the scan handlers, then immediately re-assert the live-input
         // handler so the poll keeps reading values after the editor closes.
-        for controller in connectedControllers {
+        for (index, controller) in connectedControllers.enumerated() {
             removeScanHandlers(for: controller)
-            installLiveInputHandler(for: controller)
+            installLiveInputHandler(for: controller, slot: index)
         }
     }
 
@@ -1507,7 +1508,7 @@ class GameControllerService: ObservableObject {
     /// deliberately a no-op: the 30 Hz poll does the actual reading. The scan
     /// path installs its own per-element handlers on top and clears them on
     /// exit; this profile-level handler is independent and survives that.
-    private func installLiveInputHandler(for controller: GCController) {
+    private func installLiveInputHandler(for controller: GCController, slot: Int) {
         if let pad = controller.extendedGamepad {
             pad.valueChangedHandler = { _, _ in }
         } else {
@@ -1525,6 +1526,18 @@ class GameControllerService: ObservableObject {
             for (_, dpad) in profile.dpads {
                 dpad.valueChangedHandler = { _, _, _ in }
             }
+        }
+
+        // Extra buttons (DualSense touchpad/Create, mute, paddles, and
+        // controller-specific profile buttons) are read by the mapping poll
+        // through their `.value` properties. A profile-level handler is not
+        // sufficient on macOS 26 for every extra control: some values stay
+        // stale unless the individual button has a value-change handler as
+        // well. Keep the existing pressed handlers intact and add a no-op
+        // value handler to the exact cached objects used by
+        // `readControllerState`.
+        for (button, _) in cachedExtraButtons[slot] ?? [] {
+            button.valueChangedHandler = { _, _, _ in }
         }
     }
 

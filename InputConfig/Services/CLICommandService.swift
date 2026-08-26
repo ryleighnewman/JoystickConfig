@@ -212,6 +212,19 @@ final class CLICommandService {
                     ])
                 })
             ])
+        case "action.perform":
+            let alias = try requiredString(payload, "kind")
+            let kind: AppActionKind
+            switch alias {
+            case "application-windows": kind = .applicationWindows
+            case "codex-appshot": kind = .codexAppshot
+            case "selection-screenshot-to-clipboard": kind = .selectionScreenshotToClipboard
+            case "mission-control": kind = .missionControl
+            default:
+                throw CLICommandError(code: "invalid_action", message: "Unknown runtime action: \(alias)")
+            }
+            if !dryRun { MenuBarController.shared.performAppAction(kind, targetPresetID: nil) }
+            return .object(["kind": .string(alias), "performed": .bool(!dryRun)])
         case "devices.list", "devices.state":
             return deviceState(includeState: command == "devices.state")
         case "preset.list":
@@ -472,6 +485,12 @@ final class CLICommandService {
         if alias == "mission-control" {
             return ([OutputAction(type: .appAction, appActionKind: .missionControl)], nil)
         }
+        if alias == "application-windows" || alias == "app-expose" {
+            return ([OutputAction(type: .appAction, appActionKind: .applicationWindows)], nil)
+        }
+        if alias == "codex-appshot" {
+            return ([OutputAction(type: .appAction, appActionKind: .codexAppshot)], nil)
+        }
         if alias == "selection-screenshot-to-clipboard" {
             return ([OutputAction(type: .appAction, appActionKind: .selectionScreenshotToClipboard)], nil)
         }
@@ -658,7 +677,7 @@ final class CLICommandService {
 
     private func schema() -> JSONValue {
         .object(["schemaVersion": .number(1), "commands": .array([
-            "status", "accessibility.request", "selftest.run", "selftest.status", "devices.list", "devices.state", "preset.list", "preset.show", "preset.create", "preset.duplicate", "preset.import", "preset.export", "preset.validate", "preset.apply", "preset.patch", "preset.convert", "preset.activate", "preset.deactivate", "preset.delete", "binding.list", "binding.set", "binding.remove", "group.list", "group.create", "group.rename", "group.move", "group.color", "group.delete", "settings.get", "settings.set", "settings.reset", "settings.login-item", "calibration.get", "calibration.set", "calibration.reset", "region.list", "region.apply", "region.delete", "backup.export", "backup.restore", "trash.list", "trash.restore", "trash.empty", "stats.show", "stats.export", "stats.reset", "schema", "resource.get", "resource.apply", "resource.patch"
+            "status", "accessibility.request", "selftest.run", "selftest.status", "action.perform", "devices.list", "devices.state", "preset.list", "preset.show", "preset.create", "preset.duplicate", "preset.import", "preset.export", "preset.validate", "preset.apply", "preset.patch", "preset.convert", "preset.activate", "preset.deactivate", "preset.delete", "binding.list", "binding.set", "binding.remove", "group.list", "group.create", "group.rename", "group.move", "group.color", "group.delete", "settings.get", "settings.set", "settings.reset", "settings.login-item", "calibration.get", "calibration.set", "calibration.reset", "region.list", "region.apply", "region.delete", "backup.export", "backup.restore", "trash.list", "trash.restore", "trash.empty", "stats.show", "stats.export", "stats.reset", "schema", "resource.get", "resource.apply", "resource.patch"
         ].map(JSONValue.string)), "resources": .array(["presets", "groups", "settings", "calibration", "touchpad-regions", "cursor-regions", "left-stick-regions", "right-stick-regions", "trash", "stats", "backup"].map(JSONValue.string))])
     }
 
