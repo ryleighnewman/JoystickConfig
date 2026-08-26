@@ -418,7 +418,7 @@ final class CLICommandService {
         }
         let buttons = ["cross": 0, "circle": 1, "square": 2, "triangle": 3,
                        "l1": 4, "r1": 5, "l2-button": 6, "r2-button": 7,
-                       "create": 8, "options": 9,
+                       "create": 8, "options": 9, "mute": 15,
                        "l3": 11, "r3": 12, "touchpad-click": 13]
         if let btn = buttons[input] {
             let (actions, macro) = try outputActions(output, hold: holdOutput)
@@ -461,7 +461,7 @@ final class CLICommandService {
     }
 
     private func outputActions(_ alias: String, hold: Bool = false) throws -> ([OutputAction], [MacroStep]?) {
-        let keys = ["enter": 40, "escape": 41, "tab": 43, "space": 44,
+        let keys = ["enter": 40, "escape": 41, "backspace": 42, "tab": 43, "space": 44,
                     "arrow-right": 79, "arrow-left": 80, "arrow-down": 81, "arrow-up": 82]
         if let code = keys[alias] { return ([OutputAction(type: .key, keyCode: code)], nil) }
         if alias == "left-click" { return ([OutputAction(type: .mouseButton, mouseButtonIndex: 0)], nil) }
@@ -471,6 +471,19 @@ final class CLICommandService {
         // reliable implementation of this semantic action.
         if alias == "mission-control" {
             return ([OutputAction(type: .appAction, appActionKind: .missionControl)], nil)
+        }
+        if alias == "selection-screenshot-to-clipboard" {
+            return ([OutputAction(type: .appAction, appActionKind: .selectionScreenshotToClipboard)], nil)
+        }
+        if alias == "tap-left-command+right-command" {
+            let left = OutputAction(type: .key, keyCode: 227)
+            let right = OutputAction(type: .key, keyCode: 231)
+            return ([], [
+                MacroStep(action: left, delayMs: 0, holdMs: 0, eventKind: .down),
+                MacroStep(action: right, delayMs: 8, holdMs: 0, eventKind: .down),
+                MacroStep(action: right, delayMs: 45, holdMs: 0, eventKind: .up),
+                MacroStep(action: left, delayMs: 8, holdMs: 0, eventKind: .up),
+            ])
         }
         if alias == "left-command+right-command" {
             let left = OutputAction(type: .key, keyCode: 227)

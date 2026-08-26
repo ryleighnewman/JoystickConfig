@@ -256,6 +256,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             return
         }
 
+        // Invoke the system screenshot tool directly rather than posting a
+        // synthetic Command+Shift+Control+4 chord. Synthetic modifier chords
+        // are not consistently accepted by the screenshot agent, while this
+        // is the underlying selection-to-clipboard operation itself.
+        if kind == .selectionScreenshotToClipboard {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = ["-c", "-i", "-s"]
+            try? process.run()
+            return
+        }
+
         guard let store = presetStore, let engine = mappingEngine else { return }
         switch kind {
         case .activatePreset:
@@ -286,6 +298,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case .togglePauseOutputs:
             engine.outputsPaused.toggle()
         case .missionControl:
+            break // handled before the store/engine guard above
+        case .selectionScreenshotToClipboard:
             break // handled before the store/engine guard above
         }
     }

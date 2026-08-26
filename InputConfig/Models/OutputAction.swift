@@ -116,6 +116,7 @@ enum AppActionKind: String, Codable, CaseIterable, Identifiable {
     case deactivate = "off"
     case togglePauseOutputs = "pause"
     case missionControl = "mission"
+    case selectionScreenshotToClipboard = "captureSelectionClipboard"
 
     var id: String { rawValue }
 
@@ -127,6 +128,7 @@ enum AppActionKind: String, Codable, CaseIterable, Identifiable {
         case .deactivate: return "Deactivate"
         case .togglePauseOutputs: return "Pause / Resume Outputs"
         case .missionControl: return "Mission Control"
+        case .selectionScreenshotToClipboard: return "Selection Screenshot to Clipboard"
         }
     }
 }

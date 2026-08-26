@@ -90,6 +90,7 @@ final class TestBenchService: ObservableObject {
             ("MIDI Modwheel", OutputAction(type: .midiCC, midiCCNumber: 1, midiCCValue: 127, midiChannel: 1)),
             ("MIDI PitchBend", OutputAction(type: .midiPitchBend, midiChannel: 5)),
             ("Mission Control", OutputAction(type: .appAction, appActionKind: .missionControl)),
+            ("Selection Screenshot", OutputAction(type: .appAction, appActionKind: .selectionScreenshotToClipboard)),
         ]
 
         for (label, original) in cases {
