@@ -7,6 +7,15 @@ class PresetStore: ObservableObject {
     @Published var presets: [Preset] = []
     @Published var activePresetId: UUID?
 
+    /// The one-time first-run setup target. It is intentionally separate from
+    /// the normal startup preset: activating this target must not turn on
+    /// recurring startup activation for everyone who installs the app.
+    @Published private(set) var initialSetupPendingPresetID: UUID?
+
+    static let codexDesktopPresetName = "Codex Desktop (DualSense)"
+    private static let initialSetupPendingPresetKey = "InputConfig.initialSetup.pendingPresetID.v1"
+    private static let initialSetupCompletedKey = "InputConfig.initialSetup.completed.v1"
+
     /// The most recently activated preset, persisted across launches so the
     /// global hotkey can re-activate "the last preset" even after a relaunch.
     /// Updated by `activatePreset`.
@@ -50,6 +59,48 @@ class PresetStore: ObservableObject {
         loadPresets()
         loadGroups()
         loadTrash()
+        restoreInitialSetupState()
+    }
+
+    /// True only while the first-run Codex preset is waiting for the user to
+    /// grant Accessibility or otherwise finish setup.
+    var isInitialSetupPending: Bool {
+        initialSetupPendingPresetID != nil
+    }
+
+    private func restoreInitialSetupState() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.initialSetupCompletedKey),
+              let raw = defaults.string(forKey: Self.initialSetupPendingPresetKey),
+              let id = UUID(uuidString: raw) else {
+            return
+        }
+        initialSetupPendingPresetID = id
+    }
+
+    /// Record the bundled Codex preset as the first-run target. This writes
+    /// only the small setup marker in UserDefaults; the preset itself is
+    /// persisted through the normal `savePreset` path.
+    @discardableResult
+    private func prepareInitialCodexSetupIfNeeded() -> UUID? {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.initialSetupCompletedKey) else { return nil }
+        if let pending = initialSetupPendingPresetID { return pending }
+        guard let preset = presets.first(where: { $0.name == Self.codexDesktopPresetName }) else {
+            return nil
+        }
+        defaults.set(preset.id.uuidString, forKey: Self.initialSetupPendingPresetKey)
+        initialSetupPendingPresetID = preset.id
+        return preset.id
+    }
+
+    /// Mark first-run setup complete. Normal preset activation calls this too,
+    /// so a user's explicit choice is respected and the Codex default does
+    /// not keep reappearing as an automatic action.
+    func completeInitialCodexSetup() {
+        UserDefaults.standard.set(true, forKey: Self.initialSetupCompletedKey)
+        UserDefaults.standard.removeObject(forKey: Self.initialSetupPendingPresetKey)
+        initialSetupPendingPresetID = nil
     }
 
     // MARK: - Groups
@@ -325,9 +376,18 @@ class PresetStore: ObservableObject {
     /// groups. Presets are matched by name; groups are seeded behind a
     /// one-shot UserDefaults flag so an App Store update never overwrites a
     /// user's renamed or deleted groups.
-    func reseedExamplePresets() {
+    @discardableResult
+    func reseedExamplePresets() -> Bool {
         let defaults = UserDefaults.standard
         let groupSeedKey = "InputConfig.seededExampleGroups.v1"
+        let exampleSeedKey = "InputConfig.seededExamples.v1"
+        let ledgerKey = "InputConfig.seededExampleNames.v1"
+        let seedBuildKey = "InputConfig.lastExampleSeedBuild"
+        let isFreshInstall = presets.isEmpty && groups.isEmpty
+            && defaults.object(forKey: groupSeedKey) == nil
+            && defaults.object(forKey: exampleSeedKey) == nil
+            && defaults.object(forKey: ledgerKey) == nil
+            && defaults.object(forKey: seedBuildKey) == nil
         let isFirstGroupSeed = !defaults.bool(forKey: groupSeedKey)
         // Self-heal: the seed flag lives in UserDefaults while the folders live
         // in groups.json, so the two can fall out of sync (flag set, file
@@ -416,23 +476,20 @@ class PresetStore: ObservableObject {
         // deduped by user-editable display NAME, so renaming a built-in example
         // (or deleting one) made a fresh copy reappear on the next launch and
         // accumulate duplicates without bound.
-        let exampleSeedKey = "InputConfig.seededExamples.v1"
         // Per-example seed ledger: every example NAME that has ever been
         // seeded on this install. Guarantees the two update-safety rules:
         //   1. A built-in preset the user modified, renamed, or deleted is
         //      NEVER re-added or replaced by any future app update.
         //   2. Brand-new examples shipped in an update still arrive, exactly
         //      once, because only never-ledgered names are seeded.
-        let ledgerKey = "InputConfig.seededExampleNames.v1"
         var seededNames = Set(defaults.stringArray(forKey: ledgerKey) ?? [])
-        // Only evaluate ExamplePresets.all (26 computed properties, each a JSON
+        // Only evaluate ExamplePresets.all (28 computed properties, each a JSON
         // decode) when it can actually matter: a fresh install (empty ledger)
         // or a new app build that may ship new examples. On an ordinary
         // same-build relaunch the ledger already contains every example, so the
         // seed loop below would skip every body anyway - gating here skips the
-        // wasted 26-preset parse entirely. Step 3 self-heal below is untouched
+        // wasted 28-preset parse entirely. Step 3 self-heal below is untouched
         // and still runs every launch (it uses only the cheap static dict).
-        let seedBuildKey = "InputConfig.lastExampleSeedBuild"
         let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
         if seededNames.isEmpty || defaults.string(forKey: seedBuildKey) != currentBuild {
             if seededNames.isEmpty && defaults.bool(forKey: exampleSeedKey) {
@@ -476,6 +533,11 @@ class PresetStore: ObservableObject {
                 savePresetToDisk(presets[index])
             }
         }
+
+        if isFreshInstall {
+            _ = prepareInitialCodexSetupIfNeeded()
+        }
+        return isFreshInstall
     }
 
     // MARK: - Saving
@@ -881,6 +943,9 @@ class PresetStore: ObservableObject {
         deactivateAll(announce: false)
         activePresetId = preset.id
         lastActivatedPresetId = preset.id
+        if isInitialSetupPending {
+            completeInitialCodexSetup()
+        }
         if let index = presets.firstIndex(where: { $0.id == preset.id }) {
             presets[index].isActive = true
         }

@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-BUNDLE_ID = "com.ryokojima.inputconfig.local"
-NOTIFICATION = f"{BUNDLE_ID}.cli.request"
+DEFAULT_BUNDLE_ID = "com.ryokojima.inputconfig.local"
 DEFAULT_TIMEOUT = 10.0
 
 
@@ -24,6 +23,20 @@ class CLIError(RuntimeError):
     def __init__(self, message: str, exit_code: int = 3):
         super().__init__(message)
         self.exit_code = exit_code
+
+
+def configured_bundle_id() -> str:
+    """Return the app bundle ID used by this checkout.
+
+    The default preserves compatibility with the local build. Forks can give
+    the app a unique bundle ID without editing this script:
+    `INPUTCONFIG_BUNDLE_ID=com.example.inputconfig inputconfigctl status`.
+    """
+    return os.environ.get("INPUTCONFIG_BUNDLE_ID", DEFAULT_BUNDLE_ID)
+
+
+def notification_name() -> str:
+    return f"{configured_bundle_id()}.cli.request"
 
 
 def protocol_root() -> Path:
@@ -141,9 +154,9 @@ def invoke(command: str, payload: dict[str, Any], *, dry_run: bool, timeout: flo
         "dryRun": dry_run,
     })
     if not (root / "ready.json").exists():
-        subprocess.run(["/usr/bin/open", "-gj", "-b", BUNDLE_ID], check=False,
+        subprocess.run(["/usr/bin/open", "-gj", "-b", configured_bundle_id()], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["/usr/bin/notifyutil", "-p", NOTIFICATION], check=False,
+    subprocess.run(["/usr/bin/notifyutil", "-p", notification_name()], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + timeout
     next_notify = time.monotonic() + 0.5
@@ -158,7 +171,7 @@ def invoke(command: str, payload: dict[str, Any], *, dry_run: bool, timeout: flo
         except json.JSONDecodeError:
             time.sleep(0.02)
         if time.monotonic() >= next_notify:
-            subprocess.run(["/usr/bin/notifyutil", "-p", NOTIFICATION], check=False,
+            subprocess.run(["/usr/bin/notifyutil", "-p", notification_name()], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             next_notify = time.monotonic() + 0.5
     request_path.unlink(missing_ok=True)

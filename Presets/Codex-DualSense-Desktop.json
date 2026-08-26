@@ -1,0 +1,293 @@
+{
+  "id": "5E9D67F4-76F4-4CE7-A3F6-7CE2A0D88D41",
+  "name": "Codex Desktop (DualSense)",
+  "tag": "Codex desktop controls: Appshot, Application Exposé, and selection screenshots",
+  "joysticks": [
+    {
+      "id": "D26E64B6-1160-4DCE-A7DD-BF3885F0AB46",
+      "tag": "DualSense: left stick = cursor, right stick = scroll, Create/Share = Codex Appshot",
+      "bindings": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "input": { "type": "btn", "index": 3 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000001", "type": "key", "keyCode": 40 }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "input": { "type": "btn", "index": 2 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000002", "type": "mbt", "mouseButtonIndex": 1 }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "input": { "type": "btn", "index": 1 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000003", "type": "mbt", "mouseButtonIndex": 0 }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "input": { "type": "hat", "index": 0, "hatDirection": "U" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000004", "type": "key", "keyCode": 82 }
+          ],
+          "sensitivityCurve": "linear",
+          "turboEnabled": true,
+          "turboRate": 15
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000005",
+          "input": { "type": "hat", "index": 0, "hatDirection": "R" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000005", "type": "key", "keyCode": 79 }
+          ],
+          "sensitivityCurve": "linear",
+          "turboEnabled": true,
+          "turboRate": 15
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000006",
+          "input": { "type": "hat", "index": 0, "hatDirection": "D" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000006", "type": "key", "keyCode": 81 }
+          ],
+          "sensitivityCurve": "linear",
+          "turboEnabled": true,
+          "turboRate": 15
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000007",
+          "input": { "type": "hat", "index": 0, "hatDirection": "L" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000007", "type": "key", "keyCode": 80 }
+          ],
+          "sensitivityCurve": "linear",
+          "turboEnabled": true,
+          "turboRate": 15
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000008",
+          "input": { "type": "axi", "index": 0, "axisDirection": "-" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000008", "type": "mou", "mouseAxis": 0, "mouseDirection": "-", "speed": 14 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.15,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000009",
+          "input": { "type": "axi", "index": 0, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000009", "type": "mou", "mouseAxis": 0, "mouseDirection": "+", "speed": 14 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.15,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000010",
+          "input": { "type": "axi", "index": 1, "axisDirection": "-" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000010", "type": "mou", "mouseAxis": 1, "mouseDirection": "-", "speed": 14 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.15,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000011",
+          "input": { "type": "axi", "index": 1, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000011", "type": "mou", "mouseAxis": 1, "mouseDirection": "+", "speed": 14 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.15,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000012",
+          "input": { "type": "axi", "index": 2, "axisDirection": "-" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000012", "type": "whe", "mouseAxis": 0, "mouseDirection": "-", "speed": 10 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.18,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000013",
+          "input": { "type": "axi", "index": 2, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000013", "type": "whe", "mouseAxis": 0, "mouseDirection": "+", "speed": 10 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.18,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000014",
+          "input": { "type": "axi", "index": 3, "axisDirection": "-" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000014", "type": "whe", "mouseAxis": 1, "mouseDirection": "+", "speed": 10 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.18,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000015",
+          "input": { "type": "axi", "index": 3, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000015", "type": "whe", "mouseAxis": 1, "mouseDirection": "-", "speed": 10 }
+          ],
+          "sensitivityCurve": "exponential",
+          "deadzone": 0.18,
+          "variableSensitivity": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000016",
+          "input": { "type": "btn", "index": 5 },
+          "outputs": [],
+          "sensitivityCurve": "linear",
+          "macroSteps": [
+            { "id": "20000000-0000-4000-8000-000000000001", "action": { "id": "30000000-0000-4000-8000-000000000001", "type": "key", "keyCode": 227 }, "delayMs": 0, "holdMs": 0, "eventKind": "down" },
+            { "id": "20000000-0000-4000-8000-000000000002", "action": { "id": "30000000-0000-4000-8000-000000000002", "type": "key", "keyCode": 6 }, "delayMs": 10, "holdMs": 35, "eventKind": "tap" },
+            { "id": "20000000-0000-4000-8000-000000000003", "action": { "id": "30000000-0000-4000-8000-000000000003", "type": "key", "keyCode": 227 }, "delayMs": 10, "holdMs": 0, "eventKind": "up" }
+          ],
+          "macroInterruptOnRelease": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000017",
+          "input": { "type": "btn", "index": 4 },
+          "outputs": [],
+          "sensitivityCurve": "linear",
+          "macroSteps": [
+            { "id": "20000000-0000-4000-8000-000000000004", "action": { "id": "30000000-0000-4000-8000-000000000004", "type": "key", "keyCode": 227 }, "delayMs": 0, "holdMs": 0, "eventKind": "down" },
+            { "id": "20000000-0000-4000-8000-000000000005", "action": { "id": "30000000-0000-4000-8000-000000000005", "type": "key", "keyCode": 25 }, "delayMs": 10, "holdMs": 35, "eventKind": "tap" },
+            { "id": "20000000-0000-4000-8000-000000000006", "action": { "id": "30000000-0000-4000-8000-000000000006", "type": "key", "keyCode": 227 }, "delayMs": 10, "holdMs": 0, "eventKind": "up" }
+          ],
+          "macroInterruptOnRelease": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000018",
+          "input": { "type": "axi", "index": 5, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000018", "type": "app", "appActionKind": "mission" }
+          ],
+          "sensitivityCurve": "linear",
+          "deadzone": 0.55
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000019",
+          "input": { "type": "axi", "index": 4, "axisDirection": "+" },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000019", "type": "key", "keyCode": 226 },
+            { "id": "10000000-0000-4000-8000-000000000020", "type": "key", "keyCode": 44 }
+          ],
+          "sensitivityCurve": "linear",
+          "deadzone": 0.55
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000020",
+          "input": { "type": "btn", "index": 12 },
+          "outputs": [],
+          "sensitivityCurve": "linear",
+          "macroSteps": [
+            { "id": "20000000-0000-4000-8000-000000000007", "action": { "id": "30000000-0000-4000-8000-000000000007", "type": "key", "keyCode": 225 }, "delayMs": 0, "holdMs": 0, "eventKind": "down" },
+            { "id": "20000000-0000-4000-8000-000000000008", "action": { "id": "30000000-0000-4000-8000-000000000008", "type": "key", "keyCode": 43 }, "delayMs": 10, "holdMs": 35, "eventKind": "tap" },
+            { "id": "20000000-0000-4000-8000-000000000009", "action": { "id": "30000000-0000-4000-8000-000000000009", "type": "key", "keyCode": 225 }, "delayMs": 10, "holdMs": 0, "eventKind": "up" }
+          ],
+          "macroInterruptOnRelease": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000021",
+          "input": { "type": "btn", "index": 11 },
+          "outputs": [],
+          "sensitivityCurve": "linear",
+          "macroSteps": [
+            { "id": "20000000-0000-4000-8000-000000000010", "action": { "id": "30000000-0000-4000-8000-000000000010", "type": "key", "keyCode": 227 }, "delayMs": 0, "holdMs": 0, "eventKind": "down" },
+            { "id": "20000000-0000-4000-8000-000000000011", "action": { "id": "30000000-0000-4000-8000-000000000011", "type": "key", "keyCode": 40 }, "delayMs": 10, "holdMs": 35, "eventKind": "tap" },
+            { "id": "20000000-0000-4000-8000-000000000012", "action": { "id": "30000000-0000-4000-8000-000000000012", "type": "key", "keyCode": 227 }, "delayMs": 10, "holdMs": 0, "eventKind": "up" }
+          ],
+          "macroInterruptOnRelease": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000022",
+          "input": { "type": "btn", "index": 9 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000021", "type": "key", "keyCode": 43 }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000023",
+          "input": { "type": "btn", "index": 0 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000022", "type": "key", "keyCode": 42 }
+          ],
+          "sensitivityCurve": "linear",
+          "turboEnabled": true,
+          "turboRate": 15
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000024",
+          "input": { "type": "btn", "index": 13 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000023", "type": "app", "appActionKind": "captureSelectionClipboard" }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000025",
+          "input": { "type": "btn", "index": 14 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000024", "type": "app", "appActionKind": "codexAppshot" }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000026",
+          "input": { "type": "btn", "index": 15 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000025", "type": "key", "keyCode": 41 }
+          ],
+          "sensitivityCurve": "linear"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000027",
+          "input": { "type": "btn", "index": 10 },
+          "outputs": [
+            { "id": "10000000-0000-4000-8000-000000000026", "type": "app", "appActionKind": "appExpose" }
+          ],
+          "sensitivityCurve": "linear"
+        }
+      ],
+      "isExpanded": true,
+      "customName": "DualSense",
+      "inputKind": "controller"
+    }
+  ],
+  "filename": "Codex-DualSense-Desktop.json",
+  "isActive": false,
+  "createdAt": 809407621,
+  "modifiedAt": 809424180.293512,
+  "groupID": null,
+  "notes": "Codex-focused DualSense desktop layout.\n\nCodex Appshot: set Codex's trigger to Double Command, then press Create/Share (button 14).\nApplication Exposé is on PS (button 10).\nSelection screenshot: press the touchpad, hold Circle (left click), move the left stick to draw the rectangle, then release Circle to copy it to the clipboard.",
+  "automation": {
+    "launchAppPath": "",
+    "launchURL": "",
+    "confineCursor": false,
+    "confineBufferPx": 24,
+    "autoRecenterCursor": false,
+    "autoRecenterIntervalMs": 500,
+    "hideCursorWhileActive": false,
+    "sensitivityMultiplier": 1
+  }
+}

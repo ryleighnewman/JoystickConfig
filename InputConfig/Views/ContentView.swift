@@ -260,10 +260,7 @@ struct ContentView: View {
         }
         .confirmationDialog(
             "Delete preset?",
-            isPresented: Binding(
-                get: { presetPendingDelete != nil },
-                set: { if !$0 { presetPendingDelete = nil } }
-            ),
+            isPresented: isPresetDeleteDialogPresented,
             titleVisibility: .visible,
             presenting: presetPendingDelete
         ) { preset in
@@ -311,6 +308,15 @@ struct ContentView: View {
                 controllerService.disableTutorialFakeController()
             }
         }
+        .onChange(of: accessibility.isTrusted) { _, trusted in
+            // TCC does not provide a dedicated permission notification. The
+            // permission service publishes its next poll / foreground refresh
+            // instead, which is the moment to finish the one-time setup.
+            if trusted {
+                showingAccessibilityIntro = false
+                activateInitialCodexPresetIfReady()
+            }
+        }
         .onChange(of: editingPreset?.id) { _, newID in
             // Pause outputs (but keep the engine polling) so an active
             // preset's bindings don't fling the cursor / fire keystrokes /
@@ -344,16 +350,7 @@ struct ContentView: View {
             .frame(minWidth: 1150, idealWidth: 1300, minHeight: 700, idealHeight: 800)
             .glassBackground()
         }
-        .onAppear {
-            presetStore.reseedExamplePresets()
-            // Proactively explain + offer Accessibility on launch if it isn't
-            // granted, since macOS doesn't always surface its own prompt and
-            // the app's mappings can't fire without it.
-            accessibility.refresh()
-            if !accessibility.isTrusted && !suppressAccessibilityIntro {
-                showingAccessibilityIntro = true
-            }
-        }
+        .onAppear(perform: handleInitialSetupOnAppear)
         .sheet(isPresented: $showingAccessibilityIntro) {
             accessibilityIntroSheet
                 .glassBackground()
@@ -2410,6 +2407,18 @@ struct ContentView: View {
     }
 
     private func startEngine(with preset: Preset) {
+        accessibility.refresh()
+        if presetStore.isInitialSetupPending && !accessibility.isTrusted {
+            // The first-run Codex preset must not start emitting keyboard or
+            // mouse events before the user has explicitly granted TCC access.
+            // Keep the pending marker so the permission observer can activate
+            // the same preset automatically after the user returns.
+            accessibility.startPolling()
+            if !suppressAccessibilityIntro {
+                showingAccessibilityIntro = true
+            }
+            return
+        }
         // An empty preset cannot do anything; activating it would show the
         // green active state over an engine with nothing to run.
         guard preset.joysticks.contains(where: { !$0.bindings.isEmpty }) else { return }
@@ -2419,10 +2428,63 @@ struct ContentView: View {
         // A preset that emits keyboard/mouse output needs Accessibility for
         // that output to reach other apps. If it isn't granted yet, prompt
         // the user the moment they activate such a preset.
-        accessibility.refresh()
         if !accessibility.isTrusted, presetUsesKeyboardOrMouse(preset) {
             showAccessibilityAlert = true
         }
+    }
+
+    /// Finish the first-run path once Accessibility is trusted. This is kept
+    /// separate from the normal toggle path so existing installations retain
+    /// their current startup and activation behavior.
+    private func activateInitialCodexPresetIfReady() {
+        guard let pendingID = presetStore.initialSetupPendingPresetID else { return }
+        guard let preset = presetStore.presets.first(where: { $0.id == pendingID }) else {
+            // The user may have deleted the template before granting access;
+            // do not leave a permanent pending marker pointing at nothing.
+            presetStore.completeInitialCodexSetup()
+            return
+        }
+        guard accessibility.isTrusted else { return }
+        if preset.isActive {
+            presetStore.completeInitialCodexSetup()
+            return
+        }
+        startEngine(with: preset)
+    }
+
+    private func handleInitialSetupOnAppear() {
+        _ = presetStore.reseedExamplePresets()
+        if let initialID = presetStore.initialSetupPendingPresetID {
+            selectedPresetId = initialID
+        }
+        // Proactively explain + offer Accessibility on launch if it isn't
+        // granted, since macOS doesn't always surface its own prompt and
+        // the app's mappings can't fire without it.
+        accessibility.refresh()
+        if accessibility.isTrusted {
+            activateInitialCodexPresetIfReady()
+        } else if presetStore.isInitialSetupPending {
+            // Keep watching even when the user previously suppressed the
+            // explainer; returning from System Settings will then still
+            // complete the pending first-run setup.
+            accessibility.startPolling()
+            if !suppressAccessibilityIntro {
+                showingAccessibilityIntro = true
+            }
+        } else if !suppressAccessibilityIntro {
+            showingAccessibilityIntro = true
+        }
+    }
+
+    private var isPresetDeleteDialogPresented: Binding<Bool> {
+        Binding<Bool>(
+            get: { presetPendingDelete != nil },
+            set: { isPresented in
+                if !isPresented {
+                    presetPendingDelete = nil
+                }
+            }
+        )
     }
 
     /// True if any binding in the preset outputs a keyboard or mouse action -

@@ -6,6 +6,13 @@ set -e
 cd "$(dirname "$0")"
 
 MODE="${1:-debug}"
+XCODE_OVERRIDES=()
+if [ -n "${INPUTCONFIG_TEAM_ID:-}" ]; then
+    XCODE_OVERRIDES+=("DEVELOPMENT_TEAM=${INPUTCONFIG_TEAM_ID}")
+fi
+if [ -n "${INPUTCONFIG_BUNDLE_ID:-}" ]; then
+    XCODE_OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=${INPUTCONFIG_BUNDLE_ID}")
+fi
 HELPER_SRC="LightHelper/main.swift"
 HELPER_ENTITLEMENTS="LightHelper/LightHelper.entitlements"
 TOUCHPAD_HELPER_SRC="TouchpadHelper/main.swift"
@@ -62,7 +69,8 @@ if [ "$MODE" = "archive" ]; then
         -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
         archive \
-        -archivePath build/InputConfig.xcarchive
+        -archivePath build/InputConfig.xcarchive \
+        "${XCODE_OVERRIDES[@]}"
 
     # Copy helpers into the archive and sign them
     MACOS_DIR="build/InputConfig.xcarchive/Products/Applications/InputConfig.app/Contents/MacOS"
@@ -92,6 +100,7 @@ elif [ "$MODE" = "install" ]; then
         -configuration Release \
         -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
+        "${XCODE_OVERRIDES[@]}" \
         build
 
     SRC=$(find ~/Library/Developer/Xcode/DerivedData/InputConfig-*/Build/Products/Release -name "InputConfig.app" -maxdepth 1 2>/dev/null | head -1)
@@ -131,6 +140,7 @@ else
         -configuration "$CONFIG" \
         -destination 'generic/platform=macOS' \
         -skipPackagePluginValidation \
+        "${XCODE_OVERRIDES[@]}" \
         build
 
     # Find and copy helpers into the built app, then sign them so the sandboxed

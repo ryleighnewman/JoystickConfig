@@ -1,8 +1,6 @@
 import Foundation
 import CoreFoundation
 
-private let inputConfigCLINotification = "com.ryokojima.inputconfig.local.cli.request"
-
 private func inputConfigCLICallback(
     _ center: CFNotificationCenter?,
     _ observer: UnsafeMutableRawPointer?,
@@ -80,6 +78,7 @@ final class CLICommandService {
     private let root: URL
     private let requests: URL
     private let responses: URL
+    private let notificationName: String
     private var processing = false
 
     init(presetStore: PresetStore, mappingEngine: MappingEngine,
@@ -91,11 +90,13 @@ final class CLICommandService {
         root = support.appendingPathComponent("InputConfig/CLI/v1", isDirectory: true)
         requests = root.appendingPathComponent("requests", isDirectory: true)
         responses = root.appendingPathComponent("responses", isDirectory: true)
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.ryokojima.inputconfig.local"
+        notificationName = "\(bundleID).cli.request"
         try? FileManager.default.createDirectory(at: requests, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: responses, withIntermediateDirectories: true)
         let observer = UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer,
-                                        inputConfigCLICallback, inputConfigCLINotification as CFString,
+                                        inputConfigCLICallback, notificationName as CFString,
                                         nil, .deliverImmediately)
         try? Data("{\"schemaVersion\":1,\"ready\":true}".utf8)
             .write(to: root.appendingPathComponent("ready.json"), options: .atomic)
@@ -105,7 +106,7 @@ final class CLICommandService {
     deinit {
         let observer = UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer,
-                                           CFNotificationName(inputConfigCLINotification as CFString), nil)
+                                           CFNotificationName(notificationName as CFString), nil)
     }
 
     func processPendingRequests() {
@@ -431,7 +432,9 @@ final class CLICommandService {
         }
         let buttons = ["cross": 0, "circle": 1, "square": 2, "triangle": 3,
                        "l1": 4, "r1": 5, "l2-button": 6, "r2-button": 7,
-                       "create": 8, "options": 9, "ps": 10, "mute": 15,
+                       // DualSense exposes Create/Share as supplemental
+                       // button 14. Button 8 is the legacy MFi Share slot.
+                       "create": 14, "share": 14, "options": 9, "ps": 10, "mute": 15,
                        "l3": 11, "r3": 12, "touchpad-click": 13]
         if let btn = buttons[input] {
             let (actions, macro) = try outputActions(output, hold: holdOutput)

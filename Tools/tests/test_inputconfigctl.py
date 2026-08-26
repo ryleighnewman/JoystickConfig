@@ -9,6 +9,7 @@ from unittest import mock
 
 
 TOOL = Path(__file__).parents[1] / "inputconfigctl"
+CODEX_PRESET = Path(__file__).parents[2] / "Presets" / "Codex-DualSense-Desktop.json"
 loader = importlib.machinery.SourceFileLoader("inputconfigctl", str(TOOL))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 ctl = importlib.util.module_from_spec(spec)
@@ -58,6 +59,52 @@ class InputConfigCTLTests(unittest.TestCase):
                 ctl.dispatch(args),
                 ("action.perform", {"kind": kind}, None),
             )
+
+    def test_public_codex_preset_activation_dispatch(self):
+        args = ctl.parser().parse_args([
+            "preset", "activate", "Codex Desktop (DualSense)"
+        ])
+        self.assertEqual(
+            ctl.dispatch(args),
+            ("preset.activate", {"name": "Codex Desktop (DualSense)"}, None),
+        )
+
+    def test_codex_preset_json_shape_and_bindings(self):
+        preset = json.loads(CODEX_PRESET.read_text(encoding="utf-8"))
+        for field in ("id", "name", "tag", "joysticks", "filename",
+                      "isActive", "createdAt", "modifiedAt", "automation"):
+            self.assertIn(field, preset)
+        self.assertEqual(preset["name"], "Codex Desktop (DualSense)")
+        self.assertFalse(preset["isActive"])
+        self.assertEqual(preset["filename"], "Codex-DualSense-Desktop.json")
+        self.assertEqual(len(preset["joysticks"]), 1)
+
+        bindings = preset["joysticks"][0]["bindings"]
+        by_input = {
+            (item["input"]["type"], item["input"]["index"]): item
+            for item in bindings
+        }
+
+        self.assertEqual(by_input[("btn", 1)]["outputs"][0]["mouseButtonIndex"], 0)
+        self.assertEqual(by_input[("btn", 10)]["outputs"][0]["appActionKind"], "appExpose")
+        self.assertEqual(by_input[("btn", 13)]["outputs"][0]["appActionKind"], "captureSelectionClipboard")
+        self.assertEqual(by_input[("btn", 14)]["outputs"][0]["appActionKind"], "codexAppshot")
+        self.assertNotIn(("btn", 8), by_input)
+        self.assertTrue(by_input[("btn", 0)]["turboEnabled"])
+        self.assertEqual(by_input[("btn", 0)]["turboRate"], 15)
+        for direction in ("U", "R", "D", "L"):
+            item = next(
+                item for item in bindings
+                if item["input"]["type"] == "hat"
+                and item["input"]["hatDirection"] == direction
+            )
+            self.assertTrue(item["turboEnabled"])
+            self.assertEqual(item["turboRate"], 15)
+
+    def test_bundle_id_can_be_overridden_for_a_fork(self):
+        with mock.patch.dict(os.environ, {"INPUTCONFIG_BUNDLE_ID": "com.example.inputconfig"}):
+            self.assertEqual(ctl.configured_bundle_id(), "com.example.inputconfig")
+            self.assertEqual(ctl.notification_name(), "com.example.inputconfig.cli.request")
 
     def test_default_protocol_root_is_shared_application_support(self):
         with mock.patch.dict(os.environ, {}, clear=False):

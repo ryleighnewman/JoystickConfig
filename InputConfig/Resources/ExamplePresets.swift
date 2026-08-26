@@ -15,8 +15,8 @@ import Foundation
 ///   Axes:    0=LX, 1=LY, 2=RX, 3=RY, 4=LT, 5=RT
 ///   Buttons: 0=A/Cross, 1=B/Circle, 2=X/Square, 3=Y/Triangle,
 ///            4=LB, 5=RB, 6=LT(digital), 7=RT(digital),
-///            8=Options/Share, 9=Menu/Start, 10=Home/PS,
-///            11=L3, 12=R3, 13=DualSense touchpad button
+///            8=Share (legacy MFi), 9=Options, 10=Home/PS,
+///            11=L3, 12=R3, 13=DualSense touchpad, 14=Create/Share
 ///   Hat 0: D-pad (U/D/L/R)
 struct ExamplePresets {
 
@@ -38,6 +38,7 @@ struct ExamplePresets {
 
     /// Preset name → group name. Presets not in this map seed ungrouped.
     static let groupAssignments: [String: String] = [
+        "Codex Desktop (DualSense)":    GroupName.desktop,
         "Desktop Navigation":            GroupName.desktop,
         "Web Browsing":                  GroupName.desktop,
         "Mouse + Scroll":                GroupName.desktop,
@@ -147,6 +148,7 @@ struct ExamplePresets {
     static var all: [Preset] {
         return [
             // Desktop & Productivity
+            codexDesktop,
             desktopNavigation,
             webBrowsing,
             mouseScroll,
@@ -186,6 +188,40 @@ struct ExamplePresets {
     }
 
     // MARK: - Desktop & Productivity (JSON)
+
+    /// The Codex-focused DualSense layout is kept as a native JSON resource so
+    /// it can be reviewed, validated, and shared independently from the Swift
+    /// source. It is copied into the app bundle and seeded into Application
+    /// Support on first launch just like the programmatic examples below.
+    private static let codexDesktopResource: Preset = {
+        let resourceURLs = [
+            Bundle.main.url(forResource: "Codex-DualSense-Desktop", withExtension: "json"),
+            Bundle.main.url(forResource: "Codex-DualSense-Desktop", withExtension: "json", subdirectory: "Presets")
+        ].compactMap { $0 }
+
+        for url in resourceURLs {
+            guard let data = try? Data(contentsOf: url),
+                  var preset = try? JSONDecoder().decode(Preset.self, from: data) else {
+                continue
+            }
+            // A bundled example is a template, never a live session and never
+            // attached to a user's sidebar folder until it is seeded.
+            preset.isActive = false
+            preset.groupID = nil
+            return preset
+        }
+
+        assertionFailure("Codex-DualSense-Desktop.json is missing or invalid")
+        return Preset(
+            name: "Codex Desktop (DualSense)",
+            tag: "Codex desktop controls",
+            joysticks: [JoystickMapping(tag: "Bundled preset resource unavailable",
+                                        inputKind: .controller)])
+    }()
+
+    static var codexDesktop: Preset {
+        codexDesktopResource
+    }
 
     static var desktopNavigation: Preset {
         parse("""

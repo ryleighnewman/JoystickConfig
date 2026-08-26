@@ -4,9 +4,19 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 DERIVED="$ROOT/build/DerivedData"
 CONFIGURATION="${INPUTCONFIG_CONFIGURATION:-Debug}"
-TEAM_ID="G63G3JB5DN"
+TEAM_ID="${INPUTCONFIG_TEAM_ID:-}"
+EXPECTED_BUNDLE_ID="${INPUTCONFIG_BUNDLE_ID:-com.ryokojima.inputconfig.local}"
 APP="$DERIVED/Build/Products/$CONFIGURATION/InputConfig.app"
 ACTION="${1:-run}"
+
+typeset -a XCODE_OVERRIDES
+XCODE_OVERRIDES=()
+if [[ -n "$TEAM_ID" ]]; then
+  XCODE_OVERRIDES+=("DEVELOPMENT_TEAM=$TEAM_ID")
+fi
+if [[ -n "${INPUTCONFIG_BUNDLE_ID:-}" ]]; then
+  XCODE_OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$EXPECTED_BUNDLE_ID")
+fi
 
 build_helpers() {
   /usr/bin/xcrun swiftc -O -framework Foundation -framework IOKit "$ROOT/LightHelper/main.swift" -o "$ROOT/LightHelper/LightHelper"
@@ -23,7 +33,7 @@ sign_bundle() {
   local sign_id
   sign_id="$(identity)"
   if [[ -z "$sign_id" ]]; then
-    print -u2 "No Apple Development identity is available. Open Xcode > Settings > Accounts and create one for team $TEAM_ID."
+    print -u2 "No code-signing identity is available. Open Xcode > Settings > Accounts, or set INPUTCONFIG_TEAM_ID to your team."
     return 65
   fi
   /bin/cp "$ROOT/LightHelper/LightHelper" "$app/Contents/MacOS/LightHelper"
@@ -40,7 +50,7 @@ build_app() {
   build_helpers
   /usr/bin/xcodebuild -project "$ROOT/InputConfig.xcodeproj" -scheme InputConfig \
     -configuration "$CONFIGURATION" -destination 'generic/platform=macOS' \
-    -derivedDataPath "$DERIVED" DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+    -derivedDataPath "$DERIVED" CODE_SIGN_STYLE=Automatic "${XCODE_OVERRIDES[@]}" \
     -allowProvisioningUpdates build
   sign_bundle "$APP"
 }
@@ -48,8 +58,10 @@ build_app() {
 verify_app() {
   local app="${1:-$APP}"
   /usr/bin/codesign --verify --strict --deep "$app"
-  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == "com.ryokojima.inputconfig.local" ]]
-  /usr/bin/codesign -dvvv "$app" 2>&1 | /usr/bin/grep "TeamIdentifier=$TEAM_ID" >/dev/null
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == "$EXPECTED_BUNDLE_ID" ]]
+  if [[ -n "$TEAM_ID" ]]; then
+    /usr/bin/codesign -dvvv "$app" 2>&1 | /usr/bin/grep "TeamIdentifier=$TEAM_ID" >/dev/null
+  fi
   /usr/bin/codesign -d --entitlements - "$app" 2>&1 | /usr/bin/grep 'com.apple.security.device.usb' >/dev/null
   if /usr/bin/codesign -d --entitlements - "$app" 2>&1 | /usr/bin/grep 'com.apple.security.app-sandbox' >/dev/null; then
     print -u2 "main app must remain unsandboxed so inputconfigctl can share Application Support"
@@ -69,7 +81,8 @@ case "$ACTION" in
     build_helpers
     /usr/bin/xcodebuild -project "$ROOT/InputConfig.xcodeproj" -scheme InputConfig \
       -configuration "$CONFIGURATION" -destination 'generic/platform=macOS' \
-      -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- build
+      -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- \
+      "${XCODE_OVERRIDES[@]}" build
     ;;
   run)
     build_app

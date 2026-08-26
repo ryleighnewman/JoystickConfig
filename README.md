@@ -1,9 +1,65 @@
-# InputConfig
+# InputConfig — Codex Desktop fork
 
-This local branch adds a versioned command-line interface. Build and run with
-`./script/build_and_run.sh run`; see `Tools/inputconfigctl --help`. The CLI
-uses atomic JSON request/response files in the user's Application Support and a Darwin
-notification, and supports dry runs plus full-fidelity Codable resources.
+This checkout is an unofficial, Codex-focused fork of [InputConfig](https://github.com/ryleighnewman/InputConfig).
+It keeps the original app's MIT license, copyright, and attribution. It is not
+affiliated with or endorsed by OpenAI or Codex.
+
+The built-in "Codex Desktop (DualSense)" preset packages the current Codex
+desktop setup: Codex Appshot, Application Exposé, and a range-selection
+screenshot copied to the clipboard. Existing users keep their current presets
+and startup settings; the Codex preset is selected and activated automatically
+only during first-run setup.
+
+## Codex-focused setup
+
+Requirements:
+
+- macOS 14.0 or later
+- A DualSense controller
+- Accessibility permission for InputConfig
+- Codex Desktop with its Appshot trigger configured as "Double Command"
+
+The preset maps the controller as follows:
+
+| Controller input | Action |
+|---|---|
+| Create / Share (btn 14) | Codex Appshot (Double Command) |
+| PS (btn 10) | Application Exposé for the frontmost app |
+| Touchpad click (btn 13) | Interactive screenshot selection to the clipboard |
+| Circle (btn 1) | Left click |
+| Left stick | Cursor |
+| Right stick | Scroll |
+
+To capture a selection, press the touchpad to open the screenshot UI, hold
+Circle while tilting the left stick to draw the rectangle, then release Circle
+to commit the selection and copy it to the clipboard. The rest of the current
+key, mouse, Turbo, and macro assignments are included in the preset.
+
+On a fresh installation, grant Accessibility permission when prompted. The
+app waits without starting input conversion until permission is available, then
+activates the Codex preset once. It does not force recurring automatic
+activation on later launches.
+
+The command-line interface can also trigger the Codex actions directly:
+
+~~~sh
+./Tools/inputconfigctl --json status
+./Tools/inputconfigctl action perform codex-appshot
+./Tools/inputconfigctl action perform application-windows
+./Tools/inputconfigctl action perform selection-screenshot-to-clipboard
+./Tools/inputconfigctl preset activate "Codex Desktop (DualSense)"
+~~~
+
+The CLI starts or contacts the local app using its bundle ID and communicates
+through the user's Application Support directory and a macOS Darwin
+notification. It does not require a network connection. If a fork uses a
+different bundle ID, set INPUTCONFIG_BUNDLE_ID for both the app build and
+CLI commands.
+
+The App Store badge below links to the upstream InputConfig distribution. It
+is not a download link for this fork's binary.
+
+<a href="https://apps.apple.com/us/app/inputconfig/id6777759147?mt=12"><img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-mac-app-store/black/en-us" alt="Upstream InputConfig on the Mac App Store (not this fork binary)" height="56"></a>
 
 InputConfig is a free, open-source controller mapper for macOS. It turns any game
 controller into a keyboard and mouse, so a gamepad can drive your whole Mac: browse the
@@ -12,8 +68,6 @@ entirely if using one is difficult.
 
 Works with PS5 DualSense, DualShock 4, Xbox Wireless, Switch Pro, 8BitDo, and any
 HID-compatible gamepad. No drivers, no subscription, no account.
-
-<a href="https://apps.apple.com/us/app/inputconfig/id6777759147?mt=12"><img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-mac-app-store/black/en-us" alt="Download on the Mac App Store" height="56"></a>
 
 ## Overview
 
@@ -176,12 +230,31 @@ nothing.
 ## Building
 
 1. Open `InputConfig.xcodeproj` in Xcode 26 or later
-2. Select your team in Signing & Capabilities
-3. Build and run
+2. Select your Apple Development team in Signing & Capabilities, or pass it
+   through the environment when building from the command line
+3. Build and run with `./script/build_and_run.sh run`
+
+For a local fork, the fixed upstream team dependency has been removed. Set
+your own signing team and, if desired, a unique bundle ID:
+
+~~~sh
+INPUTCONFIG_TEAM_ID=YOUR_TEAM_ID ./script/build_and_run.sh run
+INPUTCONFIG_TEAM_ID=YOUR_TEAM_ID \
+INPUTCONFIG_BUNDLE_ID=com.example.inputconfig \
+  ./script/build_and_run.sh run
+~~~
+
+When using a custom bundle ID, use the same INPUTCONFIG_BUNDLE_ID when
+calling ./Tools/inputconfigctl. The legacy build_and_archive.sh script
+accepts the same environment variables.
 
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+This fork preserves the original InputConfig copyright notice, MIT terms, and
+upstream attribution. The Codex-focused preset and integration changes are
+provided under the same license.
 
 ## Privacy
 

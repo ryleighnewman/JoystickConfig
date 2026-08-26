@@ -225,6 +225,15 @@ enum ControllerTypeDetector {
             case 10: return "Home"
             case 11: return "L3"
             case 12: return "R3"
+            case 13: return "Touchpad"
+            case 14: return "Create / Share"
+            case 15: return "Microphone / Mute"
+            case 16: return "Left Paddle"
+            case 17: return "Right Paddle"
+            case 18: return "Paddle 3"
+            case 19: return "Paddle 4"
+            case 20: return "FN 1 / Left Function"
+            case 21: return "FN 2 / Right Function"
             default: return "Button \(index)"
             }
         }
