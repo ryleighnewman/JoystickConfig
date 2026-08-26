@@ -416,6 +416,7 @@ final class CLICommandService {
         }
         let buttons = ["cross": 0, "circle": 1, "square": 2, "triangle": 3,
                        "l1": 4, "r1": 5, "l2-button": 6, "r2-button": 7,
+                       "create": 8, "options": 9,
                        "l3": 11, "r3": 12, "touchpad-click": 13]
         if let btn = buttons[input] {
             let (actions, macro) = try outputActions(output, hold: holdOutput)
