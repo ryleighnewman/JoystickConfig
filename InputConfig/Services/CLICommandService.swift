@@ -402,13 +402,15 @@ final class CLICommandService {
         let turboEnabled = s["turbo"]?.bool ?? s["turboEnabled"]?.bool
         let turboRate = s["turboRate"]?.int
         let holdOutput = s["hold"]?.bool == true
+        let interruptMacroOnRelease = s["macroInterruptOnRelease"]?.bool ?? true
         let invertVertical = s["invertVertical"]?.bool == true
         let curve = SensitivityCurve(rawValue: s["curve"]?.string == "smooth" ? "exponential" : (s["curve"]?.string ?? "linear"))
         func model(_ event: InputEvent, _ actions: [OutputAction], macro: [MacroStep]? = nil) -> BindingModel {
             BindingModel(input: event, outputs: actions, deadzone: deadzone,
                          turboEnabled: turboEnabled, turboRate: turboRate,
                          sensitivityCurve: curve, variableSensitivity: variable,
-                         macroSteps: macro, macroInterruptOnRelease: macro == nil ? nil : true,
+                         macroSteps: macro,
+                         macroInterruptOnRelease: macro == nil ? nil : interruptMacroOnRelease,
                          note: s["note"]?.string)
         }
         func action(_ type: OutputType, axis: MouseAxis? = nil, dir: MouseDirection? = nil) -> OutputAction {
@@ -469,6 +471,31 @@ final class CLICommandService {
         // reliable implementation of this semantic action.
         if alias == "mission-control" {
             return ([OutputAction(type: .appAction, appActionKind: .missionControl)], nil)
+        }
+        if alias == "left-command+right-command" {
+            let left = OutputAction(type: .key, keyCode: 227)
+            let right = OutputAction(type: .key, keyCode: 231)
+            if hold { return ([left, right], nil) }
+            return ([], [
+                MacroStep(action: left, delayMs: 0, holdMs: 0, eventKind: .down),
+                MacroStep(action: right, delayMs: 10, holdMs: 35, eventKind: .tap),
+                MacroStep(action: left, delayMs: 10, holdMs: 0, eventKind: .up),
+            ])
+        }
+        if alias == "command+shift+control+4" {
+            let command = OutputAction(type: .key, keyCode: 227)
+            let shift = OutputAction(type: .key, keyCode: 225)
+            let control = OutputAction(type: .key, keyCode: 224)
+            let four = OutputAction(type: .key, keyCode: 33)
+            return ([], [
+                MacroStep(action: command, delayMs: 0, holdMs: 0, eventKind: .down),
+                MacroStep(action: shift, delayMs: 10, holdMs: 0, eventKind: .down),
+                MacroStep(action: control, delayMs: 10, holdMs: 0, eventKind: .down),
+                MacroStep(action: four, delayMs: 10, holdMs: 35, eventKind: .tap),
+                MacroStep(action: control, delayMs: 10, holdMs: 0, eventKind: .up),
+                MacroStep(action: shift, delayMs: 10, holdMs: 0, eventKind: .up),
+                MacroStep(action: command, delayMs: 10, holdMs: 0, eventKind: .up),
+            ])
         }
         let chords: [String: (Int, Int)] = ["command+c": (227, 6), "command+v": (227, 25),
                                             "option+space": (226, 44), "shift+tab": (225, 43),
