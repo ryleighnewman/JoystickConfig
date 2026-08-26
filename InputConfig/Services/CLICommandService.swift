@@ -418,7 +418,7 @@ final class CLICommandService {
         }
         let buttons = ["cross": 0, "circle": 1, "square": 2, "triangle": 3,
                        "l1": 4, "r1": 5, "l2-button": 6, "r2-button": 7,
-                       "create": 8, "options": 9, "mute": 15,
+                       "create": 8, "options": 9, "ps": 10, "mute": 15,
                        "l3": 11, "r3": 12, "touchpad-click": 13]
         if let btn = buttons[input] {
             let (actions, macro) = try outputActions(output, hold: holdOutput)
@@ -512,7 +512,7 @@ final class CLICommandService {
         }
         let chords: [String: (Int, Int)] = ["command+c": (227, 6), "command+v": (227, 25),
                                             "option+space": (226, 44), "shift+tab": (225, 43),
-                                            "command+enter": (227, 40)]
+                                            "command+enter": (227, 40), "control+arrow-down": (224, 81)]
         if let (modifier, key) = chords[alias] {
             // Hold-mode chords use the normal binding lifecycle: all keys go
             // down when the input crosses its threshold and are released in
