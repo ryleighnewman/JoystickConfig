@@ -4,6 +4,8 @@ import CoreGraphics
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import CoreAudio
+import AudioToolbox
 
 /// Simulates keyboard and mouse input on macOS using CGEvent.
 ///
@@ -535,3 +537,332 @@ final class AccessibilityPermissionService: ObservableObject {
 }
 
 #endif
+
+// MARK: - System Volume
+
+/// Sets the Mac's output volume to an absolute level, so a continuous
+/// input (a MIDI knob, the pitch wheel, aftertouch, a controller trigger)
+/// can act as a hardware volume fader: position equals level, 1-to-1.
+/// This is different from the volume KEYS, which only nudge in steps.
+///
+/// Talks to CoreAudio's default output device directly. The device is
+/// re-resolved when the default changes (AirPods connect, display audio,
+/// etc.), and writes are suppressed below a small epsilon so a resting
+/// knob costs nothing.
+final class SystemVolumeService: @unchecked Sendable {
+    nonisolated(unsafe) static let shared = SystemVolumeService()
+
+    private let lock = NSLock()
+    private var cachedDevice: AudioObjectID = kAudioObjectUnknown
+    private var lastSet: Float = -1
+
+    private init() {
+        // Refresh the cached device whenever the system default changes.
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) { [weak self] _, _ in
+            guard let self else { return }
+            self.lock.lock()
+            self.cachedDevice = kAudioObjectUnknown
+            self.lastSet = -1
+            self.lock.unlock()
+        }
+    }
+
+    private func defaultOutputDevice() -> AudioObjectID {
+        if cachedDevice != kAudioObjectUnknown { return cachedDevice }
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device)
+        if status == noErr { cachedDevice = device }
+        return device
+    }
+
+    /// Set the output volume to `level` (0...1). Cheap to call every poll
+    /// frame: identical or near-identical levels are dropped before any
+    /// CoreAudio traffic happens.
+    func setVolume(_ level: Float) {
+        let clamped = max(0, min(1, level))
+        lock.lock()
+        if abs(clamped - lastSet) < 0.004 { lock.unlock(); return }
+        lastSet = clamped
+        let device = defaultOutputDevice()
+        lock.unlock()
+        guard device != kAudioObjectUnknown else { return }
+
+        var value = clamped
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address) else { return }
+        AudioObjectSetPropertyData(device, &address, 0, nil,
+                                   UInt32(MemoryLayout<Float>.size), &value)
+    }
+}
+
+
+// MARK: - System actions
+
+/// Executes .systemAction outputs: volume nudges and mute (CoreAudio),
+/// media and brightness keys (system-defined aux-key events), Mac
+/// shortcuts (Mission Control, Launchpad, Spotlight, lock screen,
+/// screenshot), and automation (Siri Shortcuts, opening apps and URLs).
+/// Everything here is App Sandbox safe.
+final class SystemActionService: @unchecked Sendable {
+    nonisolated(unsafe) static let shared = SystemActionService()
+    private init() {}
+
+    /// How far one Volume Up / Down press moves, matching the keyboard's
+    /// sixteen steps from silent to full.
+    private let volumeStep: Float = 1.0 / 16.0
+
+    func perform(_ kind: SystemActionKind, parameter: String?) {
+        switch kind {
+        case .volumeUp: nudgeVolume(by: volumeStep)
+        case .volumeDown: nudgeVolume(by: -volumeStep)
+        case .muteToggle: toggleMute()
+        case .playPause: postAuxKey(16)      // NX_KEYTYPE_PLAY
+        case .nextTrack: postAuxKey(19)      // NX_KEYTYPE_FAST
+        case .previousTrack: postAuxKey(20)  // NX_KEYTYPE_REWIND
+        case .brightnessUp: postAuxKey(2)    // NX_KEYTYPE_BRIGHTNESS_UP
+        case .brightnessDown: postAuxKey(3)  // NX_KEYTYPE_BRIGHTNESS_DOWN
+        case .missionControl:
+            openSystemApp("Mission Control")
+        case .launchpad:
+            openSystemApp("Launchpad")
+        case .spotlight:
+            postCombo(keyCode: 49, flags: .maskCommand)            // Cmd+Space
+        case .lockScreen:
+            postCombo(keyCode: 12, flags: [.maskControl, .maskCommand])  // Ctrl+Cmd+Q
+        case .screenshotMenu:
+            postCombo(keyCode: 23, flags: [.maskCommand, .maskShift])    // Cmd+Shift+5
+        case .runShortcut:
+            if let name = parameter, !name.isEmpty { runShortcut(named: name) }
+        case .openApp:
+            if let target = parameter, !target.isEmpty { openApp(target) }
+        case .openURL:
+            if let raw = parameter, let url = URL(string: raw) {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    // MARK: Volume (CoreAudio, sandbox-safe)
+
+    private func volumeAddress() -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+    }
+
+    private func defaultOutputDevice() -> AudioObjectID {
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
+                                   &address, 0, nil, &size, &device)
+        return device
+    }
+
+    private func nudgeVolume(by delta: Float) {
+        let device = defaultOutputDevice()
+        guard device != kAudioObjectUnknown else { return }
+        var address = volumeAddress()
+        guard AudioObjectHasProperty(device, &address) else { return }
+        var current: Float = 0
+        var size = UInt32(MemoryLayout<Float>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &current) == noErr else { return }
+        var next = max(0, min(1, current + delta))
+        AudioObjectSetPropertyData(device, &address, 0, nil,
+                                   UInt32(MemoryLayout<Float>.size), &next)
+        // Nudging out of silence should also unmute, like the keyboard key.
+        if delta > 0 { setMuted(false) }
+    }
+
+    private func toggleMute() {
+        let device = defaultOutputDevice()
+        guard device != kAudioObjectUnknown else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address) else { return }
+        var muted: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &muted) == noErr else { return }
+        var next: UInt32 = muted == 0 ? 1 : 0
+        AudioObjectSetPropertyData(device, &address, 0, nil,
+                                   UInt32(MemoryLayout<UInt32>.size), &next)
+    }
+
+    private func setMuted(_ muted: Bool) {
+        let device = defaultOutputDevice()
+        guard device != kAudioObjectUnknown else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address) else { return }
+        var value: UInt32 = muted ? 1 : 0
+        AudioObjectSetPropertyData(device, &address, 0, nil,
+                                   UInt32(MemoryLayout<UInt32>.size), &value)
+    }
+
+    // MARK: Aux keys (media / brightness)
+
+    /// Post a system-defined aux-key press + release (NX_KEYTYPE_*), the
+    /// same events the keyboard's media row sends. Must run on a thread
+    /// with an NSEvent-safe context, so hop to main.
+    private func postAuxKey(_ keyType: Int32) {
+        DispatchQueue.main.async {
+            for down in [true, false] {
+                let flags: NSEvent.ModifierFlags = down ? [] : []
+                let data1 = Int((Int32(keyType) << 16) | (down ? 0x0A00 : 0x0B00))
+                guard let event = NSEvent.otherEvent(
+                    with: .systemDefined,
+                    location: .zero,
+                    modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: 0,
+                    context: nil,
+                    subtype: 8,
+                    data1: data1,
+                    data2: -1
+                ), let cg = event.cgEvent else { continue }
+                cg.setIntegerValueField(.eventSourceUserData,
+                                        value: InputSimulator.ownEventMarker)
+                cg.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    // MARK: Key combos
+
+    /// Post one full press + release of a keyboard combo, marked as our
+    /// own so listen-only taps can filter it.
+    private func postCombo(keyCode: CGKeyCode, flags: CGEventFlags) {
+        guard let source = CGEventSource(stateID: .hidSystemState) else { return }
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source,
+                                      virtualKey: keyCode, keyDown: down) else { continue }
+            event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData,
+                                       value: InputSimulator.ownEventMarker)
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    // MARK: Mac shortcuts
+
+    private func openSystemApp(_ name: String) {
+        let url = URL(fileURLWithPath: "/System/Applications/\(name).app")
+        NSWorkspace.shared.openApplication(at: url,
+                                           configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    // MARK: Automation
+
+    /// Run a Siri Shortcut by name via the `shortcuts` CLI (silent, no UI).
+    /// If the CLI is unavailable from the sandbox, fall back to the
+    /// shortcuts:// URL scheme, which Shortcuts handles itself.
+    private func runShortcut(named name: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+            task.arguments = ["run", name]
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+            do {
+                try task.run()
+                task.waitUntilExit()
+                if task.terminationStatus == 0 { return }
+                NSLog("[SystemAction] shortcuts run '%@' exited %d; falling back to URL scheme",
+                      name, task.terminationStatus)
+            } catch {
+                NSLog("[SystemAction] shortcuts CLI unavailable (%@); falling back to URL scheme",
+                      String(describing: error))
+            }
+            var comps = URLComponents(string: "shortcuts://run-shortcut")!
+            comps.queryItems = [URLQueryItem(name: "name", value: name)]
+            if let url = comps.url {
+                // Run without stealing focus - the shortcut executes in the
+                // background; the Shortcuts app stays wherever it was.
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = false
+                DispatchQueue.main.async {
+                    NSWorkspace.shared.open(url, configuration: config)
+                }
+            }
+        }
+    }
+
+    /// The user's installed Shortcuts, for the picker in the binding
+    /// editor. Cached for a few seconds so opening the menu twice doesn't
+    /// spawn the CLI twice.
+    private let shortcutsLock = NSLock()
+    private var cachedShortcuts: [String] = []
+    private var shortcutsFetchedAt: Date = .distantPast
+
+    func installedShortcuts() -> [String] {
+        shortcutsLock.lock()
+        let fresh = Date().timeIntervalSince(shortcutsFetchedAt) < 10
+        let cached = cachedShortcuts
+        shortcutsLock.unlock()
+        if fresh { return cached }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        task.arguments = ["list"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0,
+                  let text = String(data: data, encoding: .utf8) else { return cached }
+            let names = text.split(separator: "\n").map(String.init)
+                .filter { !$0.isEmpty }
+            shortcutsLock.lock()
+            cachedShortcuts = names
+            shortcutsFetchedAt = Date()
+            shortcutsLock.unlock()
+            return names
+        } catch {
+            return cached
+        }
+    }
+
+    private func openApp(_ target: String) {
+        let config = NSWorkspace.OpenConfiguration()
+        if target.hasPrefix("/") {
+            NSWorkspace.shared.openApplication(
+                at: URL(fileURLWithPath: target), configuration: config)
+            return
+        }
+        for dir in ["/Applications", "/System/Applications", "/System/Applications/Utilities"] {
+            let path = "\(dir)/\(target).app"
+            if FileManager.default.fileExists(atPath: path) {
+                NSWorkspace.shared.openApplication(
+                    at: URL(fileURLWithPath: path), configuration: config)
+                return
+            }
+        }
+        // Last try: treat the string as a bundle identifier.
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: target) {
+            NSWorkspace.shared.openApplication(at: url, configuration: config)
+        }
+    }
+}

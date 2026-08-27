@@ -254,14 +254,96 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
+/// App-level accessibility preferences, settable in Settings > General >
+/// Accessibility. These layer ON TOP of the system settings: the system's
+/// Reduce Motion / Reduce Transparency are always honored, and these let the
+/// user opt in per-app without changing their whole Mac.
+enum AppA11y {
+    static var reduceMotion: Bool {
+        UserDefaults.standard.bool(forKey: "InputConfig.a11y.reduceMotion")
+    }
+    static var reduceTransparency: Bool {
+        UserDefaults.standard.bool(forKey: "InputConfig.a11y.reduceTransparency")
+    }
+
+    /// Map the stored text-size step to a concrete Dynamic Type size.
+    static func typeSize(forStep step: Int) -> DynamicTypeSize {
+        switch step {
+        case 1: return .xLarge
+        case 2: return .xxxLarge
+        case 3: return .accessibility1
+        default: return .large
+        }
+    }
+}
+
+/// Applies the app-level accessibility preferences to a view tree: text
+/// size, bold text, and the no-animation transaction gate. Environment
+/// values (type size, legibility) flow into sheets and popovers on their
+/// own; the transaction gate is re-applied inside glassBackground so
+/// sheets get it too.
+struct AccessibilityAdjustments: ViewModifier {
+    @AppStorage("InputConfig.a11y.textSize") private var textSize = 0
+    @AppStorage("InputConfig.a11y.boldText") private var boldText = false
+    @AppStorage("InputConfig.a11y.reduceMotion") private var reduceMotionPref = false
+
+    func body(content: Content) -> some View {
+        content
+            .dynamicTypeSize(AppA11y.typeSize(forStep: textSize))
+            .environment(\.legibilityWeight, boldText ? .bold : nil)
+            .transaction { txn in
+                if reduceMotionPref { txn.animation = nil }
+            }
+    }
+}
+
+/// The main window's behind-window backdrop, honoring Reduce Transparency:
+/// frosted glass normally, a solid window background when the user asks.
+private struct WindowBackdrop: ViewModifier {
+    @AppStorage("InputConfig.a11y.reduceTransparency") private var reduceTransparency = false
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+        } else {
+            content.background(VisualEffectBackground(tintOpacity: 0.07).ignoresSafeArea())
+        }
+    }
+}
+
+/// Sheet backdrop half of the same rule.
+private struct SheetBackdrop: ViewModifier {
+    @AppStorage("InputConfig.a11y.reduceTransparency") private var reduceTransparency = false
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.presentationBackground { Color(nsColor: .windowBackgroundColor).ignoresSafeArea() }
+        } else {
+            content.presentationBackground { VisualEffectBackground().ignoresSafeArea() }
+        }
+    }
+}
+
 extension View {
+    /// App-level accessibility (text size, bold text, reduced motion).
+    /// Apply once at each window root; sheets inherit the environment
+    /// halves automatically.
+    func appAccessibility() -> some View {
+        modifier(AccessibilityAdjustments())
+    }
+
     /// Presents this sheet over the same behind-window frosted glass as the
     /// main window, so every sheet shares one consistent translucency. Apply
     /// to the content inside a `.sheet { }` closure. Also carries the
-    /// Reduce Motion gate so every sheet honors it without per-sheet wiring.
+    /// Reduce Motion gate so every sheet honors it without per-sheet wiring,
+    /// and swaps to a solid backdrop under Reduce Transparency.
     func glassBackground() -> some View {
-        presentationBackground { VisualEffectBackground().ignoresSafeArea() }
+        modifier(SheetBackdrop())
             .reduceMotionFriendly()
+            .appAccessibility()
+    }
+
+    /// Main-window backdrop honoring Reduce Transparency.
+    func windowBackdrop() -> some View {
+        modifier(WindowBackdrop())
     }
 
     /// System accessibility: when the user enables Reduce Motion, strip the
@@ -619,8 +701,9 @@ struct InputConfig: App {
                 .environmentObject(appState.controllerService)
                 .environmentObject(appState.mappingEngine)
                 .environmentObject(appState.eightBitDoDetector)
-                .background(VisualEffectBackground(tintOpacity: 0.07).ignoresSafeArea())
+                .windowBackdrop()
                 .reduceMotionFriendly()
+                .appAccessibility()
                 .onAppear {
                     #if DEBUG
                     _ = DebugMarketing.shared   // register marketing capture hooks
@@ -743,6 +826,7 @@ struct InputConfig: App {
                 .environmentObject(appState.presetStore)
                 .environmentObject(appState.controllerService)
                 .environmentObject(appState.mappingEngine)
+                .appAccessibility()
         }
     }
 }

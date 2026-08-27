@@ -133,6 +133,44 @@ enum MIDIInputKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// How a `.midi` Control Change binding interprets the knob or slider.
+/// Only meaningful when `midiKind == .cc`; every other message family
+/// ignores it.
+enum MIDICCMode: String, Codable, CaseIterable, Identifiable {
+    /// The 1.2 behaviour and the default: fires like a switch once the
+    /// value passes the halfway point. Right for sustain pedals and
+    /// on/off style CCs.
+    case threshold
+    /// Speed-from-centre: the knob's centre (64) is zero, distance from
+    /// centre sets the output speed, side sets the direction, and the
+    /// binding's deadzone keeps it silent near centre. Behaves like an
+    /// analog stick axis, including variable-speed mouse and scroll.
+    case centered
+    /// Relative nudges: each turn fires the outputs as short pulses,
+    /// clockwise for the + direction and counterclockwise for -. Built
+    /// for volume-up/down, brightness, and stepped scrolling.
+    case relative
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .threshold: return "Switch (past halfway)"
+        case .centered:  return "Dial (speed from centre)"
+        case .relative:  return "Turn (nudge per step)"
+        }
+    }
+
+    /// Short badge used inside the row's display name.
+    var badge: String? {
+        switch self {
+        case .threshold: return nil
+        case .centered:  return "Dial"
+        case .relative:  return "Turn"
+        }
+    }
+}
+
 /// Sub-role of an `.extMouse` input. Maps the same physical mouse onto
 /// multiple bindable sources without exploding the InputType enum.
 enum ExtMouseKind: String, Codable, CaseIterable, Identifiable {
@@ -307,6 +345,14 @@ struct InputEvent: Codable, Hashable, Identifiable {
     /// default: a preset keeps working when the user plugs in a
     /// different keyboard. Only valid for `.midi`.
     var midiDeviceID: String?
+    /// Knob interpretation for `.cc` bindings. nil decodes as
+    /// `.threshold`, so presets saved before this field existed keep
+    /// their exact behaviour.
+    var midiCCMode: MIDICCMode?
+    /// Turn-mode sensitivity: raw CC units of travel per nudge. nil means
+    /// the default of 4 (a full knob sweep is about 32 nudges). Smaller
+    /// is finer. Only meaningful when `midiCCMode == .relative`.
+    var midiTurnStep: Int?
 
     var displayName: String {
         switch type {
@@ -364,7 +410,8 @@ struct InputEvent: Codable, Hashable, Identifiable {
                 return "MIDI \(MIDIService.noteName(index)) (\(chan))"
             case .cc:
                 let dir = axisDirection.map { " \($0.displayName)" } ?? ""
-                return "MIDI CC \(index)\(dir) (\(chan))"
+                let mode = (midiCCMode?.badge).map { " \($0)" } ?? ""
+                return "MIDI CC \(index)\(mode)\(dir) (\(chan))"
             case .programChange:
                 return "MIDI Program \(index) (\(chan))"
             case .pitchBend:
@@ -433,6 +480,11 @@ struct InputEvent: Codable, Hashable, Identifiable {
             let chan = midiChannel.map(String.init) ?? "any"
             let dir = axisDirection?.rawValue ?? "+"
             let dev = midiDeviceID ?? "any"
+            // The mode token is appended only for non-default modes so the
+            // serialized keys of every pre-existing binding stay identical.
+            if let mode = midiCCMode, mode != .threshold {
+                return "mid \(kind) \(index) \(chan) \(dir) \(dev) \(mode.rawValue)"
+            }
             return "mid \(kind) \(index) \(chan) \(dir) \(dev)"
         }
     }
@@ -529,11 +581,13 @@ struct InputEvent: Codable, Hashable, Identifiable {
             let dir: AxisDirection = (parts.count > 4
                 ? AxisDirection(rawValue: parts[4]) : nil) ?? .positive
             let device: String? = (parts.count > 5 && parts[5] != "any") ? parts[5] : nil
+            let ccMode: MIDICCMode? = parts.count > 6 ? MIDICCMode(rawValue: parts[6]) : nil
             return InputEvent(type: .midi, index: number,
                               axisDirection: dir,
                               midiKind: kind,
                               midiChannel: channel,
-                              midiDeviceID: device)
+                              midiDeviceID: device,
+                              midiCCMode: ccMode)
         default:
             return nil
         }
@@ -585,12 +639,14 @@ struct InputEvent: Codable, Hashable, Identifiable {
                      number: Int,
                      channel: Int? = nil,
                      direction: AxisDirection = .positive,
-                     deviceID: String? = nil) -> InputEvent {
+                     deviceID: String? = nil,
+                     ccMode: MIDICCMode? = nil) -> InputEvent {
         InputEvent(type: .midi, index: number,
                    axisDirection: direction,
                    midiKind: kind,
                    midiChannel: channel,
-                   midiDeviceID: deviceID)
+                   midiDeviceID: deviceID,
+                   midiCCMode: ccMode)
     }
 
     static func extKey(hidCode: Int, deviceID: String? = nil) -> InputEvent {

@@ -38,6 +38,7 @@ enum HelpGuideLibrary {
         accessControllerProfile,
         eightBitDoMode,
         genericHIDController,
+        systemFunctions,
         variableSensitivity,
         midiOutput,
         hapticFeedback,
@@ -70,6 +71,17 @@ enum HelpGuideLibrary {
                     "The pitch wheel is centre-resting, so bind it in the plus or minus direction like a joystick axis.",
                     "Aftertouch fires when you press harder into a held key.",
                     "Program Change fires once each time the patch changes.",
+                ]
+            ),
+            HelpSection(
+                heading: "Knob modes",
+                body: "A Control Change binding has three interpretations, picked from the channel menu on its row. Switch is the default: it fires once the value passes halfway, which suits pedals. Dial treats the centre of the knob as zero, like an analog stick: the further you turn from centre the faster the bound output runs, direction picks the side, and the binding's deadzone keeps it still near centre. Pair Dial with a Mouse Wheel output for scrolling that speeds up as you turn. Turn fires the outputs as short nudges for every few steps of rotation, clockwise for the plus direction and counterclockwise for minus - built for volume, brightness, and stepped scrolling.",
+                steps: [
+                    "Scrolling that follows the knob: bind CC with Dial mode in the + direction to a Mouse Wheel output, then add a second binding on the same CC in the - direction for the other way.",
+                    "Volume from a knob: bind CC with Turn mode + to the volume up key, and a second Turn binding - to volume down.",
+                    "Return the knob to centre to stop a Dial binding; Turn bindings only fire while the knob is actually moving.",
+                    "Volume as a fader: bind a CC to the System Volume output and the Mac's volume follows the knob position 1-to-1, even below the press threshold. Works from the pitch wheel, aftertouch, and controller triggers too.",
+                    "Turn Step in the knob menu tunes nudge sensitivity, from Fine (2 units) to Chunky (16 units per nudge).",
                 ]
             ),
             HelpSection(
@@ -345,6 +357,37 @@ enum HelpGuideLibrary {
             HelpSection(
                 heading: "Supported models",
                 body: "Models confirmed to work in Apple mode include the Pro 2, Ultimate (Bluetooth and 2.4G), SN30 Pro+, Pro, SN30 Pro, and Lite SE. Other models may work but are not officially supported by 8BitDo for Apple devices."
+            ),
+        ]
+    )
+
+    static let systemFunctions = HelpGuide(
+        id: "system-functions",
+        title: "System Functions",
+        category: "Mapping features",
+        summary: "Outputs that run the Mac itself: volume, mute, media keys, brightness, Mission Control, lock screen, Siri Shortcuts, and opening any app or URL.",
+        sections: [
+            HelpSection(
+                heading: "What they are",
+                body: "A System Function is an output like any other - bind it to a controller button, a keyboard key, a MIDI pad, or a knob. Pick one from the output menu under System: Sound (volume up / down, mute), Media (play / pause, next, previous), Display (brightness up / down), Mac (Mission Control, Launchpad, Spotlight, lock screen, the screenshot toolbar), and Automation (run a Siri Shortcut, open an app, open a URL)."
+            ),
+            HelpSection(
+                heading: "Knobs that run the Mac",
+                body: "System Functions fire once per press, which makes them a natural pair for Turn-mode MIDI knobs: every few steps of rotation fires one nudge.",
+                steps: [
+                    "Hardware volume knob: bind a CC in Turn mode + to Volume Up and a second Turn binding - to Volume Down.",
+                    "Brightness dial: the same recipe with Brightness Up and Brightness Down.",
+                    "Prefer 1-to-1 volume? Use the System Volume output instead - the level follows the knob's position like a fader.",
+                    "The built-in MIDI: Media Deck preset wires all of this up, ready to remap.",
+                ]
+            ),
+            HelpSection(
+                heading: "Siri Shortcuts, apps, and URLs",
+                body: "Run Siri Shortcut fires any shortcut from the Shortcuts app by name - pick one from the list on the binding row or type its exact name. Open App accepts an app name (Safari), a bundle identifier, or a full path. Open URL opens anything the Mac has a handler for: https links, mailto, facetime, and other app schemes.",
+                steps: [
+                    "One pad can do a lot: a Shortcut can toggle Do Not Disturb, start a timer, control smart-home devices, or run a whole automation.",
+                    "Shortcuts run in the background without taking focus from what you're doing.",
+                ]
             ),
         ]
     )

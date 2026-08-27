@@ -14,6 +14,16 @@ enum OutputType: String, Codable, CaseIterable, Identifiable {
     case midiTransport = "mtr"
     case typeText = "txt"
     case appAction = "app"
+    /// Absolute system volume: the Mac's output level follows the bound
+    /// input's position 1-to-1. Built for continuous sources - a MIDI
+    /// knob, the pitch wheel, aftertouch, or a controller trigger. Unlike
+    /// the volume KEYS, which nudge in steps, this is a fader.
+    case absoluteVolume = "avl"
+    /// A named system function: volume nudges, media keys, brightness,
+    /// Mission Control, lock screen, a Siri Shortcut, opening an app or
+    /// URL. Fires on press; the specific function lives in
+    /// `systemActionKind` with an optional string parameter in `text`.
+    case systemAction = "sys"
 
     var id: String { rawValue }
 
@@ -22,6 +32,8 @@ enum OutputType: String, Codable, CaseIterable, Identifiable {
         case .key: return "Keyboard Key"
         case .typeText: return "Type Text"
         case .appAction: return "App Action"
+        case .absoluteVolume: return "System Volume (follows input)"
+        case .systemAction: return "System Function"
         case .mouseButton: return "Mouse Button"
         case .mouseMotion: return "Mouse Motion"
         case .mouseWheel: return "Mouse Wheel"
@@ -67,6 +79,106 @@ enum MIDITransport: String, Codable, CaseIterable, Identifiable {
         case .continue: return 0xFB
         }
     }
+}
+
+/// A system-level function a binding can trigger. Grouped for the picker:
+/// sound, media, display, Mac shortcuts, and automation. The three
+/// automation kinds carry a string parameter (shortcut name, app name or
+/// path, URL) in the output's `text` field.
+enum SystemActionKind: String, Codable, CaseIterable, Identifiable {
+    // Sound
+    case volumeUp = "vup"
+    case volumeDown = "vdn"
+    case muteToggle = "mut"
+    // Media
+    case playPause = "ply"
+    case nextTrack = "nxt"
+    case previousTrack = "prv"
+    // Display
+    case brightnessUp = "bup"
+    case brightnessDown = "bdn"
+    // Mac
+    case missionControl = "mct"
+    case launchpad = "lpd"
+    case spotlight = "spt"
+    case lockScreen = "lck"
+    case screenshotMenu = "scr"
+    // Automation
+    case runShortcut = "sct"
+    case openApp = "opa"
+    case openURL = "our"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .volumeUp: return "Volume Up"
+        case .volumeDown: return "Volume Down"
+        case .muteToggle: return "Mute / Unmute"
+        case .playPause: return "Play / Pause"
+        case .nextTrack: return "Next Track"
+        case .previousTrack: return "Previous Track"
+        case .brightnessUp: return "Brightness Up"
+        case .brightnessDown: return "Brightness Down"
+        case .missionControl: return "Mission Control"
+        case .launchpad: return "Launchpad"
+        case .spotlight: return "Spotlight Search"
+        case .lockScreen: return "Lock Screen"
+        case .screenshotMenu: return "Screenshot Menu"
+        case .runShortcut: return "Run Siri Shortcut"
+        case .openApp: return "Open App"
+        case .openURL: return "Open URL"
+        }
+    }
+
+    /// True when the kind needs a user-supplied string parameter.
+    var needsParameter: Bool {
+        switch self {
+        case .runShortcut, .openApp, .openURL: return true
+        default: return false
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .volumeUp: return "speaker.plus.fill"
+        case .volumeDown: return "speaker.minus.fill"
+        case .muteToggle: return "speaker.slash.fill"
+        case .playPause: return "playpause.fill"
+        case .nextTrack: return "forward.fill"
+        case .previousTrack: return "backward.fill"
+        case .brightnessUp: return "sun.max.fill"
+        case .brightnessDown: return "sun.min.fill"
+        case .missionControl: return "rectangle.3.group.fill"
+        case .launchpad: return "square.grid.3x3.fill"
+        case .spotlight: return "magnifyingglass"
+        case .lockScreen: return "lock.fill"
+        case .screenshotMenu: return "camera.viewfinder"
+        case .runShortcut: return "sparkles.rectangle.stack.fill"
+        case .openApp: return "arrow.up.forward.app.fill"
+        case .openURL: return "safari.fill"
+        }
+    }
+
+    /// Section header the kind appears under in the output picker.
+    var category: String {
+        switch self {
+        case .volumeUp, .volumeDown, .muteToggle: return "Sound"
+        case .playPause, .nextTrack, .previousTrack: return "Media"
+        case .brightnessUp, .brightnessDown: return "Display"
+        case .missionControl, .launchpad, .spotlight, .lockScreen, .screenshotMenu: return "Mac"
+        case .runShortcut, .openApp, .openURL: return "Automation"
+        }
+    }
+
+    /// Picker order, grouped by category.
+    static let grouped: [(category: String, kinds: [SystemActionKind])] = [
+        ("Sound", [.volumeUp, .volumeDown, .muteToggle]),
+        ("Media", [.playPause, .nextTrack, .previousTrack]),
+        ("Display", [.brightnessUp, .brightnessDown]),
+        ("Mac", [.missionControl, .launchpad, .spotlight, .lockScreen, .screenshotMenu]),
+        ("Automation", [.runShortcut, .openApp, .openURL]),
+    ]
 }
 
 /// Mouse motion / wheel axis
@@ -158,6 +270,10 @@ struct OutputAction: Codable, Hashable, Identifiable {
     var appActionKind: AppActionKind?
     var targetPresetID: UUID?
 
+    /// Which system function a .systemAction output performs. The
+    /// parameter for Run Shortcut / Open App / Open URL rides in `text`.
+    var systemActionKind: SystemActionKind?
+
     init(type: OutputType, keyCode: Int? = nil, mouseButtonIndex: Int? = nil,
          mouseAxis: MouseAxis? = nil, mouseDirection: MouseDirection? = nil, speed: Int? = nil,
          midiNote: Int? = nil, midiVelocity: Int? = nil,
@@ -167,7 +283,8 @@ struct OutputAction: Codable, Hashable, Identifiable {
          midiTransport: MIDITransport? = nil,
          text: String? = nil,
          appActionKind: AppActionKind? = nil,
-         targetPresetID: UUID? = nil) {
+         targetPresetID: UUID? = nil,
+         systemActionKind: SystemActionKind? = nil) {
         self.id = UUID()
         self.type = type
         self.keyCode = keyCode
@@ -185,6 +302,7 @@ struct OutputAction: Codable, Hashable, Identifiable {
         self.text = text
         self.appActionKind = appActionKind
         self.targetPresetID = targetPresetID
+        self.systemActionKind = systemActionKind
     }
 
     var displayName: String {
@@ -248,6 +366,15 @@ struct OutputAction: Codable, Hashable, Identifiable {
             return "Type \"\(preview)\""
         case .appAction:
             return appActionKind?.displayName ?? "App Action"
+        case .absoluteVolume:
+            return "System Volume"
+        case .systemAction:
+            guard let kind = systemActionKind else { return "System Function" }
+            if kind.needsParameter, let t = text, !t.isEmpty {
+                let preview = t.count > 18 ? String(t.prefix(18)) + "..." : t
+                return "\(kind.displayName): \(preview)"
+            }
+            return kind.displayName
         }
     }
 
@@ -293,6 +420,15 @@ struct OutputAction: Codable, Hashable, Identifiable {
                 return "app \(kind) \(target.uuidString)"
             }
             return "app \(kind)"
+        case .absoluteVolume:
+            return "avl"
+        case .systemAction:
+            let kind = (systemActionKind ?? .playPause).rawValue
+            if let t = text, !t.isEmpty {
+                let encoded = t.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+                return "sys \(kind) \(encoded)"
+            }
+            return "sys \(kind)"
         }
     }
 
@@ -357,6 +493,12 @@ struct OutputAction: Codable, Hashable, Identifiable {
             guard parts.count >= 2 else { return nil }
             let t = MIDITransport(rawValue: parts[1]) ?? .start
             return OutputAction(type: .midiTransport, midiTransport: t)
+        case "avl":
+            return OutputAction(type: .absoluteVolume)
+        case "sys":
+            guard parts.count >= 2, let kind = SystemActionKind(rawValue: parts[1]) else { return nil }
+            let param = parts.count >= 3 ? parts[2].removingPercentEncoding : nil
+            return OutputAction(type: .systemAction, text: param, systemActionKind: kind)
         case "txt":
             // txt <percent-encoded text>
             let decoded = parts.count >= 2 ? (parts[1].removingPercentEncoding ?? "") : ""
@@ -378,5 +520,6 @@ struct OutputAction: Codable, Hashable, Identifiable {
         case midiProgramNumber, midiTransport
         case text
         case appActionKind, targetPresetID
+        case systemActionKind
     }
 }

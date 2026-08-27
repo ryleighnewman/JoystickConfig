@@ -463,6 +463,8 @@ struct VirtualControllerView<Trailing: View>: View {
                 counts[.mouse, default: 0] += 1
             case .touchpad, .touchpadRegion, .touchpadGesture:
                 counts[.touchpad, default: 0] += 1
+            case .midi:
+                counts[.midi, default: 0] += 1
             default:
                 counts[.controller, default: 0] += 1
             }
@@ -518,6 +520,8 @@ struct VirtualControllerView<Trailing: View>: View {
             // to inferring from binding types. Each widget then gates
             // on (a) hardware capability and (b) binding presence.
             switch effectiveInputKind {
+            case .midi:
+                MIDIInstrumentView(preset: preset, slot: slot, onJump: onJump)
             case .keyboard:
                 keyboardLayout
             case .touchpad:
@@ -558,6 +562,8 @@ struct VirtualControllerView<Trailing: View>: View {
                     .tag(SlotInputKind.touchpad)
                 Label("Mouse + Scroll", systemImage: "computermouse")
                     .tag(SlotInputKind.mouse)
+                Label("MIDI Instrument", systemImage: "pianokeys")
+                    .tag(SlotInputKind.midi)
             }
             .labelsHidden()
             .pickerStyle(.menu)
@@ -2001,5 +2007,582 @@ private struct MotionWidget: View {
         .accessibilityValue(String(
             format: "Roll %.0f, pitch %.0f, yaw %.0f degrees",
             roll * 180 / .pi, pitch * 180 / .pi, yaw * 180 / .pi))
+    }
+}
+
+// MARK: - MIDI Instrument layout
+
+/// The MIDI template for the Live Visualizer: a full instrument panel that
+/// renders inside the same box, picker, and zoom chrome as the controller
+/// layouts. Selected from the template picker like any other layout and
+/// chosen automatically for slots whose bindings are mostly MIDI, so MIDI
+/// presets get it by default.
+///
+/// What it shows, per connected device (or one resting panel with nothing
+/// connected):
+///
+///   • Seven-octave velocity-shaded keyboard - held notes glow with press
+///     strength, bound notes carry a dot, octaves are labelled
+///   • A dial for every bound CC (at rest until touched) plus every CC the
+///     hardware has sent, with standard controller names (Mod Wheel,
+///     Cutoff, Sustain...), knob-mode badges, and the freshest knob lit
+///   • Pitch bend and aftertouch meters, the last Program Change, and a
+///     16-slot channel activity strip
+///   • A rolling event log (notes with velocity, sparse CC sweeps, program
+///     changes) plus the session's total event count
+///
+/// Every key and knob opens the binding inspector with jump-to-editor.
+/// Render discipline: state only mutates when the service's event counter
+/// or device list actually changed, so an idle instrument costs one lock
+/// per tick and zero re-renders.
+struct MIDIInstrumentView: View {
+    let preset: Preset
+    let slot: Int
+    var onJump: ((EditorJumpTarget) -> Void)?
+
+    @State private var snapshot: [MIDIInputService.DeviceActivity] = []
+    @State private var lastCounter: UInt64 = 0
+    @State private var deviceSignature: String = ""
+    @State private var openInspector: String?
+    @State private var stripWidthEstimate: CGFloat = 600
+
+    /// Keyboard strip range: C0...C8, seven octaves.
+    private static let lowNote = 24, highNote = 108
+    private static let maxKnobs = 16
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if snapshot.isEmpty {
+                devicePanel(placeholderDevice)
+            } else {
+                ForEach(snapshot) { device in
+                    devicePanel(device)
+                }
+            }
+        }
+        .onAppear {
+            // Live even while the preset is inactive, so the user can watch
+            // their gear before flipping the engine on.
+            MIDIInputService.shared.start()
+            refresh(force: true)
+        }
+        .onReceive(Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()) { _ in
+            refresh(force: false)
+        }
+    }
+
+    private var placeholderDevice: MIDIInputService.DeviceActivity {
+        MIDIInputService.DeviceActivity(
+            id: "placeholder", name: "MIDI",
+            notesDown: [], ccs: [], pitchBend: nil, aftertouch: nil,
+            lastProgram: nil, velocities: [:], channelStamps: [:],
+            recent: [], eventCount: 0)
+    }
+
+    private func refresh(force: Bool) {
+        let counter = MIDIInputService.shared.activityCounter()
+        let devices = MIDIInputService.shared.connectedDevices()
+        let signature = devices.map(\.id).joined(separator: ",")
+        guard force || counter != lastCounter || signature != deviceSignature else { return }
+        lastCounter = counter
+        deviceSignature = signature
+        snapshot = MIDIInputService.shared.activitySnapshot()
+    }
+
+    /// Standard General MIDI controller names for the knob labels.
+    static func ccName(_ cc: Int) -> String? {
+        switch cc {
+        case 0: return "Bank"
+        case 1: return "Mod Wheel"
+        case 2: return "Breath"
+        case 4: return "Foot"
+        case 5: return "Porta Time"
+        case 7: return "Volume"
+        case 8: return "Balance"
+        case 10: return "Pan"
+        case 11: return "Expression"
+        case 64: return "Sustain"
+        case 65: return "Portamento"
+        case 66: return "Sostenuto"
+        case 67: return "Soft Pedal"
+        case 71: return "Resonance"
+        case 72: return "Release"
+        case 73: return "Attack"
+        case 74: return "Cutoff"
+        case 84: return "Porta Ctl"
+        case 91: return "Reverb"
+        case 93: return "Chorus"
+        case 120: return "All Sound Off"
+        case 123: return "All Notes Off"
+        default: return nil
+        }
+    }
+
+    // MARK: Device panel
+
+    @ViewBuilder
+    private func devicePanel(_ device: MIDIInputService.DeviceActivity) -> some View {
+        let isPlaceholder = device.id == "placeholder"
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "pianokeys")
+                    .font(.caption)
+                    .foregroundStyle(.pink)
+                Text(isPlaceholder
+                     ? "No MIDI device connected - plug one in and this goes live"
+                     : device.name)
+                    .font(.caption.weight(isPlaceholder ? .regular : .semibold))
+                    .foregroundStyle(isPlaceholder ? .secondary : .primary)
+                Spacer()
+                if let program = device.lastProgram {
+                    Text("Program \(program)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.pink.opacity(0.14)))
+                }
+                if !device.notesDown.isEmpty {
+                    Text(device.notesDown.sorted().map { MIDIService.noteName($0) }.joined(separator: " "))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.pink)
+                        .lineLimit(1)
+                }
+            }
+
+            keyboardStrip(device)
+            knobRow(device)
+
+            HStack(alignment: .top, spacing: 14) {
+                bendWidget(device)
+                aftertouchWidget(device)
+                channelStrip(device)
+                Spacer(minLength: 0)
+            }
+
+            if !device.recent.isEmpty {
+                eventLog(device)
+            }
+        }
+    }
+
+    // MARK: Keyboard strip
+
+    private func boundNotes(deviceID: String) -> Set<Int> {
+        var bound: Set<Int> = []
+        for group in preset.joysticks {
+            for binding in group.bindings
+            where binding.input.type == .midi && binding.input.midiKind == .note {
+                if let filter = binding.input.midiDeviceID, filter != deviceID { continue }
+                bound.insert(binding.input.index)
+            }
+        }
+        return bound
+    }
+
+    private static func isBlackKey(_ note: Int) -> Bool {
+        [1, 3, 6, 8, 10].contains(note % 12)
+    }
+
+    @ViewBuilder
+    private func keyboardStrip(_ device: MIDIInputService.DeviceActivity) -> some View {
+        let bound = boundNotes(deviceID: device.id)
+        let held = device.notesDown
+        let velocities = device.velocities
+        VStack(alignment: .leading, spacing: 2) {
+            Canvas { context, size in
+                let whites = (Self.lowNote...Self.highNote).filter { !Self.isBlackKey($0) }
+                let whiteW = size.width / CGFloat(whites.count)
+                for (i, note) in whites.enumerated() {
+                    let rect = CGRect(x: CGFloat(i) * whiteW, y: 0,
+                                      width: whiteW - 1, height: size.height)
+                    let path = Path(roundedRect: rect, cornerRadius: 1.5)
+                    if held.contains(note) {
+                        // Velocity shading: soft touches glow lighter.
+                        let vel = Double(velocities[note] ?? 100) / 127.0
+                        context.fill(path, with: .color(.pink.opacity(0.45 + 0.55 * vel)))
+                    } else {
+                        context.fill(path, with: .color(.secondary.opacity(0.22)))
+                    }
+                    if bound.contains(note) {
+                        let dot = CGRect(x: rect.midX - 1.5, y: size.height - 6,
+                                         width: 3, height: 3)
+                        context.fill(Path(ellipseIn: dot),
+                                     with: .color(held.contains(note) ? .white : .pink))
+                    }
+                }
+                var whiteIndex = 0
+                for note in Self.lowNote...Self.highNote {
+                    if Self.isBlackKey(note) {
+                        let x = CGFloat(whiteIndex) * whiteW - whiteW * 0.3
+                        let rect = CGRect(x: x, y: 0,
+                                          width: whiteW * 0.6, height: size.height * 0.6)
+                        let path = Path(roundedRect: rect, cornerRadius: 1.5)
+                        if held.contains(note) {
+                            let vel = Double(velocities[note] ?? 100) / 127.0
+                            context.fill(path, with: .color(.pink.opacity(0.45 + 0.55 * vel)))
+                        } else {
+                            context.fill(path, with: .color(.primary.opacity(0.55)))
+                        }
+                        if bound.contains(note) {
+                            let dot = CGRect(x: rect.midX - 1.5, y: rect.maxY - 5,
+                                             width: 3, height: 3)
+                            context.fill(Path(ellipseIn: dot),
+                                         with: .color(held.contains(note) ? .white : .pink))
+                        }
+                    } else {
+                        whiteIndex += 1
+                    }
+                }
+            }
+            .frame(height: 44)
+            .background(GeometryReader { geo in
+                Color.clear
+                    .onAppear { stripWidthEstimate = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in stripWidthEstimate = w }
+            })
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                openInspector = "keys-\(device.id)-\(noteAt(location: location))"
+            }
+            .popover(isPresented: inspectorPresented(prefix: "keys-\(device.id)-")) {
+                if let key = openInspector,
+                   let note = Int(key.split(separator: "-").last ?? "") {
+                    midiInspector(title: "\(MIDIService.noteName(note)) (note \(note))",
+                                  kind: .note, number: note, device: device)
+                }
+            }
+            .help("Keys glow with press strength. A dot marks a bound note. Click a key to see its bindings.")
+
+            // Octave labels under every C.
+            HStack(spacing: 0) {
+                let whites = (Self.lowNote...Self.highNote).filter { !Self.isBlackKey($0) }
+                ForEach(whites, id: \.self) { note in
+                    Text(note % 12 == 0 ? "C\(note / 12 - 2)" : "")
+                        .font(.system(size: 7, weight: .medium).monospaced())
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private func noteAt(location: CGPoint) -> Int {
+        let whites = (Self.lowNote...Self.highNote).filter { !Self.isBlackKey($0) }
+        let fraction = max(0, min(0.999, location.x / max(1, stripWidthEstimate)))
+        let index = Int(fraction * CGFloat(whites.count))
+        return whites[min(index, whites.count - 1)]
+    }
+
+    // MARK: Knob row
+
+    private func boundCCs(deviceID: String) -> [Int] {
+        var found = Set<Int>()
+        for group in preset.joysticks {
+            for binding in group.bindings
+            where binding.input.type == .midi && binding.input.midiKind == .cc {
+                if let filter = binding.input.midiDeviceID, filter != deviceID { continue }
+                found.insert(binding.input.index)
+            }
+        }
+        return found.sorted()
+    }
+
+    private func ccBadge(cc: Int, deviceID: String) -> (label: String, color: Color)? {
+        for group in preset.joysticks {
+            for binding in group.bindings
+            where binding.input.type == .midi && binding.input.midiKind == .cc
+                && binding.input.index == cc {
+                if let filter = binding.input.midiDeviceID, filter != deviceID { continue }
+                if binding.outputs.contains(where: { $0.type == .absoluteVolume }) {
+                    return ("Fader", .teal)
+                }
+                switch binding.input.midiCCMode {
+                case .centered: return ("Dial", .orange)
+                case .relative: return ("Turn", .indigo)
+                default: return ("Switch", .secondary)
+                }
+            }
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func knobRow(_ device: MIDIInputService.DeviceActivity) -> some View {
+        // Bound CCs always show, live or at rest, so the panel mirrors the
+        // preset before anything is touched; CCs the hardware has sent but
+        // the preset doesn't bind follow, most recently moved first.
+        let bound = boundCCs(deviceID: device.id)
+        let seenByCC = Dictionary(device.ccs.map { ($0.cc, $0) },
+                                  uniquingKeysWith: { a, b in a.stamp > b.stamp ? a : b })
+        let boundKnobs: [MIDIInputService.CCActivity] = bound.map { cc in
+            seenByCC[cc] ?? MIDIInputService.CCActivity(
+                deviceID: device.id, channel: 1, cc: cc, value: 0, stamp: 0)
+        }
+        let extras = device.ccs.filter { !bound.contains($0.cc) }
+        let knobs = Array((boundKnobs + extras).prefix(Self.maxKnobs))
+        if knobs.isEmpty {
+            Text("Twist a knob or move a slider - every control appears here live.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        } else {
+            let newest = knobs.map(\.stamp).max() ?? 0
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(knobs) { knob in
+                        knobWidget(knob,
+                                   isNewest: newest > 0 && knob.stamp == newest,
+                                   device: device)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func knobWidget(_ knob: MIDIInputService.CCActivity, isNewest: Bool,
+                            device: MIDIInputService.DeviceActivity) -> some View {
+        let badge = ccBadge(cc: knob.cc, deviceID: device.id)
+        let fraction = Double(knob.value) / 127.0
+        Button {
+            openInspector = "cc-\(device.id)-\(knob.cc)"
+        } label: {
+            VStack(spacing: 3) {
+                ZStack {
+                    Circle()
+                        .trim(from: 0.125, to: 0.875)
+                        .stroke(Color.secondary.opacity(0.25),
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(90))
+                    Circle()
+                        .trim(from: 0.125, to: 0.125 + 0.75 * fraction)
+                        .stroke(isNewest ? Color.pink : Color.secondary.opacity(0.75),
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(90))
+                    Text(knob.stamp == 0 ? "-" : "\(knob.value)")
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(isNewest ? .primary : .secondary)
+                }
+                .frame(width: 36, height: 36)
+                Text("CC \(knob.cc)")
+                    .font(.system(size: 8, weight: .medium).monospaced())
+                    .foregroundStyle(.secondary)
+                if let name = Self.ccName(knob.cc) {
+                    Text(name)
+                        .font(.system(size: 7.5))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                if let badge {
+                    Text(badge.label)
+                        .font(.system(size: 7.5, weight: .semibold))
+                        .foregroundStyle(badge.color)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(badge.color.opacity(0.14)))
+                }
+            }
+            .frame(width: 62)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: inspectorPresented(exact: "cc-\(device.id)-\(knob.cc)")) {
+            midiInspector(title: ccTitle(knob.cc), kind: .cc, number: knob.cc, device: device)
+        }
+        .help("Control Change \(knob.cc)\(Self.ccName(knob.cc).map { " (\($0))" } ?? ""), value \(knob.stamp == 0 ? "not seen yet" : String(knob.value)). Click to see its bindings.")
+    }
+
+    private func ccTitle(_ cc: Int) -> String {
+        if let name = Self.ccName(cc) { return "CC \(cc) · \(name)" }
+        return "CC \(cc)"
+    }
+
+    // MARK: Meters
+
+    @ViewBuilder
+    private func bendWidget(_ device: MIDIInputService.DeviceActivity) -> some View {
+        let bend = device.pitchBend ?? 0
+        Button {
+            openInspector = "bend-\(device.id)"
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pitch Bend")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.secondary)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.18))
+                        .frame(width: 90, height: 6)
+                    Rectangle().fill(Color.secondary.opacity(0.5))
+                        .frame(width: 1, height: 10)
+                        .offset(x: 45)
+                    Circle()
+                        .fill(abs(bend) > 0.01 ? Color.pink : Color.secondary)
+                        .frame(width: 10, height: 10)
+                        .offset(x: 40 + CGFloat(bend) * 45)
+                }
+                .frame(height: 12)
+            }
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: inspectorPresented(exact: "bend-\(device.id)")) {
+            midiInspector(title: "Pitch Bend", kind: .pitchBend, number: nil, device: device)
+        }
+    }
+
+    @ViewBuilder
+    private func aftertouchWidget(_ device: MIDIInputService.DeviceActivity) -> some View {
+        let touch = device.aftertouch ?? 0
+        Button {
+            openInspector = "touch-\(device.id)"
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Aftertouch")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.secondary)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.18))
+                        .frame(width: 60, height: 6)
+                    Capsule()
+                        .fill(touch > 0 ? Color.pink : Color.clear)
+                        .frame(width: max(0, 60 * CGFloat(touch) / 127), height: 6)
+                }
+                .frame(height: 12)
+            }
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: inspectorPresented(exact: "touch-\(device.id)")) {
+            midiInspector(title: "Aftertouch", kind: .aftertouch, number: nil, device: device)
+        }
+    }
+
+    /// Sixteen channel slots; ones this device has spoken on fill in, and
+    /// the freshest is highlighted.
+    @ViewBuilder
+    private func channelStrip(_ device: MIDIInputService.DeviceActivity) -> some View {
+        let freshest = device.channelStamps.max(by: { $0.value < $1.value })?.key
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Channels")
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 3) {
+                ForEach(1...16, id: \.self) { channel in
+                    let seen = device.channelStamps[channel] != nil
+                    Circle()
+                        .fill(channel == freshest ? Color.pink
+                              : seen ? Color.secondary.opacity(0.6)
+                              : Color.secondary.opacity(0.15))
+                        .frame(width: 6, height: 6)
+                        .help("Channel \(channel)\(seen ? "" : " - no messages yet")")
+                }
+            }
+            .frame(height: 12)
+        }
+    }
+
+    // MARK: Event log
+
+    @ViewBuilder
+    private func eventLog(_ device: MIDIInputService.DeviceActivity) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Array(device.recent.prefix(4).enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .font(.system(size: 8.5).monospaced())
+                        .foregroundStyle(index == 0 ? Color.secondary : Color.secondary.opacity(0.55))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if device.eventCount > 0 {
+                Text("\(device.eventCount) events")
+                    .font(.system(size: 8.5).monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    // MARK: Inspector
+
+    private func inspectorPresented(exact: String) -> Binding<Bool> {
+        Binding(get: { openInspector == exact },
+                set: { if !$0 { openInspector = nil } })
+    }
+
+    private func inspectorPresented(prefix: String) -> Binding<Bool> {
+        Binding(get: { openInspector?.hasPrefix(prefix) == true },
+                set: { if !$0 { openInspector = nil } })
+    }
+
+    private struct MIDIBindingMatch: Identifiable {
+        let id: UUID
+        let joystickIndex: Int
+        let binding: BindingModel
+    }
+
+    private func matches(kind: MIDIInputKind, number: Int?, deviceID: String) -> [MIDIBindingMatch] {
+        var found: [MIDIBindingMatch] = []
+        for (joystickIndex, group) in preset.joysticks.enumerated() {
+            for binding in group.bindings
+            where binding.input.type == .midi && binding.input.midiKind == kind {
+                if let number, binding.input.index != number { continue }
+                if let filter = binding.input.midiDeviceID, filter != deviceID { continue }
+                found.append(MIDIBindingMatch(id: binding.id,
+                                              joystickIndex: joystickIndex,
+                                              binding: binding))
+            }
+        }
+        return found
+    }
+
+    @ViewBuilder
+    private func midiInspector(title: String, kind: MIDIInputKind, number: Int?,
+                               device: MIDIInputService.DeviceActivity) -> some View {
+        let matchingBindings = matches(kind: kind, number: number, deviceID: device.id)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                if !matchingBindings.isEmpty {
+                    Text("\(matchingBindings.count) bound")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if matchingBindings.isEmpty {
+                Text("No bindings in this preset target this input.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(matchingBindings) { match in
+                    Button {
+                        openInspector = nil
+                        onJump?(EditorJumpTarget(
+                            joystickIndex: match.joystickIndex,
+                            inputSerialized: match.binding.input.serialized
+                        ))
+                    } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(match.binding.input.displayName)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text(match.binding.outputs.map(\.displayName).joined(separator: " + "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.forward.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 230, alignment: .leading)
     }
 }

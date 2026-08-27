@@ -203,7 +203,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             onHelp: { [weak self] in self?.dismissThen { self?.openHelpGuides() } },
             onSupport: { [weak self] in self?.dismissThen { self?.openTipJar() } },
             onQuit: { [weak self] in self?.quitApp() }
-        )
+        ).appAccessibility()
         let hosting = NSHostingController(rootView: root.reduceMotionFriendly())
         hosting.sizingOptions = [.preferredContentSize]
         pop.contentViewController = hosting
@@ -397,6 +397,12 @@ private struct MenuBarPopoverView: View {
                 .iconTint(running ? .green : .green)
                 .accessibilityHidden(true)
             Text("InputConfig").font(.headline)
+            // The running build, right where you look while testing - text
+            // only, no button. Same placement as YapToText's menu bar.
+            Text(Changelog.currentVersion)
+                .font(.caption).monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .padding(.top, 2)
             Spacer()
             enginePill
         }
@@ -584,7 +590,9 @@ private extension View {
     /// matching YapToText); on the macOS 14 App Store floor it falls back to a
     /// plain material background behind the content.
     @ViewBuilder func menuBarGlass() -> some View {
-        if #available(macOS 15.0, *) {
+        if AppA11y.reduceTransparency {
+            background(Color(nsColor: .windowBackgroundColor))
+        } else if #available(macOS 15.0, *) {
             containerBackground(.ultraThinMaterial, for: .window)
         } else {
             background(.ultraThinMaterial)

@@ -16,7 +16,20 @@ InputConfig lets you use any game controller as a keyboard and mouse on your Mac
 
 Works with DualSense (PS5), DualSense Edge, DualShock 4 (PS4), Xbox Wireless, Nintendo Switch Pro, 8BitDo, and any MFi or HID-compatible gamepad. No drivers needed.
 
-You can map to more than keys and clicks. Type whole phrases, send MIDI to a DAW, or control InputConfig itself from a button. And it is not just for game controllers: your Mac keyboard, mouse, and trackpad can be inputs too, including Force Touch trackpad pressure.
+You can map to more than keys and clicks. Type whole phrases, send MIDI to a DAW, run Siri Shortcuts, or control InputConfig itself from a button. And it is not just for game controllers: your Mac keyboard, mouse, trackpad, and MIDI gear can be inputs too.
+
+## What's new in 1.3
+
+- MIDI devices as input, everywhere: bind notes, pads, knobs, the pitch wheel, the sustain pedal, and aftertouch to anything, with no game controller connected
+- Knob modes for MIDI dials: Switch fires past halfway, Dial speeds up the further you turn from centre, Turn nudges once per step, with per-binding step sensitivity
+- System Function outputs: volume, mute, media keys, brightness, Mission Control, Launchpad, Spotlight, lock screen, the screenshot toolbar, Siri Shortcuts, and opening any app or URL
+- System volume as a fader: the Mac's volume follows a knob 1-to-1, engaging only once you actually move it
+- The Live Visualizer gained a full MIDI Instrument template: a velocity-shaded keyboard, named knob dials, pitch bend and aftertouch meters, a channel strip, and a live event log
+- Two new built-in presets (MIDI: Knob Deck and MIDI: Media Deck), five new welcome-screen feature demos, and a What's New popup after updates
+- An Accessibility area in Settings: app-wide text size, bold text, reduced transparency, and reduced motion
+- A redesigned About page and a refreshed welcome screen
+
+Full release history in [CHANGELOG.md](CHANGELOG.md). This section tracks the latest release.
 
 ![InputConfig](Marketing/posters/01-hero.jpg)
 
@@ -83,6 +96,7 @@ readings and a resting-zero calibration keep it from drifting.
 | Per-app preset switching | Yes | No | No | No | Yes |
 | Macros, turbo, tap and hold | Yes | Limited | Limited | No | Limited |
 | MIDI output | Yes | No | No | No | No |
+| MIDI keyboards and pads as input | Yes | No | No | No | No |
 | Gyroscope and motion | Yes | No | No | No | No |
 | Light bar control | Yes | No | No | No | No |
 | Still updated | Yes | Rarely | Rarely | No | Yes |
@@ -108,6 +122,12 @@ tools. Check for yourself before you switch.
 - Map cursor zones, stick zones, and touchpad regions and gestures
 - Adjustable deadzones, axis inversion, and sensitivity curves with visual calibration
 - Customize controller light bar colors per preset with a full RGB color picker
+- Use MIDI keyboards, pad controllers, and knob boxes as input, with Switch, Dial, and Turn knob modes
+- System Function outputs: volume, mute, media keys, brightness, Mission Control, lock screen, and more
+- Run Siri Shortcuts, open apps, or open URLs from any input
+- System volume as a fader that follows a knob 1-to-1
+- Live MIDI Instrument visualizer: velocity-shaded keyboard, named knob dials, wheels, and a live event log
+- App-level accessibility settings: text size, bold text, reduced transparency, reduced motion
 - Send MIDI output to your favorite DAW
 - Built-in 3D gyroscope and motion tracking
 - Spoken and haptic feedback

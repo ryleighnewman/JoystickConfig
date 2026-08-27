@@ -56,6 +56,8 @@ struct ExamplePresets {
         "MIDI: DAW Performance":         GroupName.midi,
         "MIDI: Drum Pad":                GroupName.midi,
         "MIDI: Transport Control":       GroupName.midi,
+        "MIDI: Knob Deck":               GroupName.midi,
+        "MIDI: Media Deck":              GroupName.midi,
 
         "Variable Sensitivity":   GroupName.showcase,
         "Deadzone Calibration":   GroupName.showcase,
@@ -120,6 +122,8 @@ struct ExamplePresets {
         "stacked_outputs":      "Stacked Outputs",
         "auto_launch":          "Minecraft",
         "midi_cc":              "MIDI: CC Dials",
+        "midi_input":           "MIDI: Knob Deck",
+        "system_control":       "MIDI: Media Deck",
         "keyboard_mouse":       "Desktop Navigation",
     ]
 
@@ -168,6 +172,8 @@ struct ExamplePresets {
             midiDawPerformance,
             midiDrumPad,
             midiTransportControl,
+            midiKnobDeck,
+            midiMediaDeck,
 
             // Feature Showcases (programmatic, exercise advanced features)
             showcaseVariableSensitivity,
@@ -710,6 +716,94 @@ struct ExamplePresets {
             name: "MIDI: Transport Control",
             tag: "DAW remote: start, stop, continue, program change",
             joystickTag: "A = Start, B = Stop, X = Continue, LB/RB = patch up/down",
+            bindings: bindings)
+    }
+
+
+    /// Showcase for MIDI as an *input*: a small knob deck that drives the
+    /// Mac with no game controller connected. Exercises all three knob
+    /// modes plus the System Volume fader, so it doubles as living
+    /// documentation for the knob-mode feature set.
+    static var midiKnobDeck: Preset {
+        let bindings: [BindingModel] = [
+            // CC 7 is MIDI's own channel-volume controller, so this reads
+            // exactly as labeled on most keyboards and knob boxes.
+            BindingModel(input: .midi(.cc, number: 7),
+                         outputs: [OutputAction(type: .absoluteVolume)],
+                         note: "Volume knob (CC 7): Mac volume follows it, engages once you move it"),
+            BindingModel(input: .midi(.cc, number: 1, direction: .positive, ccMode: .centered),
+                         outputs: [OutputAction(type: .mouseWheel, mouseAxis: .vertical, mouseDirection: .positive, speed: 6)],
+                         note: "Mod wheel above centre: scroll up, faster the further you push"),
+            BindingModel(input: .midi(.cc, number: 1, direction: .negative, ccMode: .centered),
+                         outputs: [OutputAction(type: .mouseWheel, mouseAxis: .vertical, mouseDirection: .negative, speed: 6)],
+                         note: "Mod wheel below centre: scroll down"),
+            BindingModel(input: .midi(.cc, number: 71, direction: .positive, ccMode: .relative),
+                         outputs: [OutputAction(type: .key, keyCode: 79)],
+                         note: "Knob (CC 71) clockwise: Right Arrow per step"),
+            BindingModel(input: .midi(.cc, number: 71, direction: .negative, ccMode: .relative),
+                         outputs: [OutputAction(type: .key, keyCode: 80)],
+                         note: "Knob (CC 71) counterclockwise: Left Arrow per step"),
+            BindingModel(input: .midi(.cc, number: 64),
+                         outputs: [OutputAction(type: .mouseButton, mouseButtonIndex: 0)],
+                         note: "Sustain pedal: hold left click, press and sweep to drag"),
+            BindingModel(input: .midi(.note, number: 36),
+                         outputs: [OutputAction(type: .key, keyCode: 40)],
+                         note: "Pad / low C (note 36): Return"),
+            BindingModel(input: .midi(.note, number: 37),
+                         outputs: [OutputAction(type: .key, keyCode: 41)],
+                         note: "Pad / C sharp (note 37): Escape"),
+        ]
+        return makePreset(
+            name: "MIDI: Knob Deck",
+            tag: "MIDI input drives the Mac: volume fader, Dial scroll, Turn nudges",
+            joystickTag: "CC 7 = volume fader, mod wheel = scroll, CC 71 = arrows, pedal = click",
+            bindings: bindings)
+    }
+
+
+    /// Showcase for System Function outputs: a MIDI pad row and two knobs
+    /// running the Mac itself - media keys, stepped volume, brightness,
+    /// mute, Mission Control - no game controller required.
+    static var midiMediaDeck: Preset {
+        let bindings: [BindingModel] = [
+            BindingModel(input: .midi(.cc, number: 7),
+                         outputs: [OutputAction(type: .absoluteVolume)],
+                         note: "Volume knob (CC 7): the Mac's volume follows it"),
+            BindingModel(input: .midi(.cc, number: 71, direction: .positive, ccMode: .relative),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .volumeUp)],
+                         note: "Knob (CC 71) clockwise: volume up one step"),
+            BindingModel(input: .midi(.cc, number: 71, direction: .negative, ccMode: .relative),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .volumeDown)],
+                         note: "Knob (CC 71) counterclockwise: volume down one step"),
+            BindingModel(input: .midi(.cc, number: 74, direction: .positive, ccMode: .relative),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .brightnessUp)],
+                         note: "Knob (CC 74) clockwise: brightness up"),
+            BindingModel(input: .midi(.cc, number: 74, direction: .negative, ccMode: .relative),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .brightnessDown)],
+                         note: "Knob (CC 74) counterclockwise: brightness down"),
+            BindingModel(input: .midi(.note, number: 36),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .playPause)],
+                         note: "Pad 1 (note 36): play / pause"),
+            BindingModel(input: .midi(.note, number: 37),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .nextTrack)],
+                         note: "Pad 2 (note 37): next track"),
+            BindingModel(input: .midi(.note, number: 38),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .previousTrack)],
+                         note: "Pad 3 (note 38): previous track"),
+            BindingModel(input: .midi(.note, number: 39),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .muteToggle)],
+                         note: "Pad 4 (note 39): mute / unmute"),
+            BindingModel(input: .midi(.note, number: 40),
+                         outputs: [OutputAction(type: .systemAction, systemActionKind: .missionControl)],
+                         note: "Pad 5 (note 40): Mission Control"),
+            BindingModel(input: .midi(.note, number: 41),
+                         outputs: [OutputAction(type: .systemAction, text: "Music", systemActionKind: .openApp)],
+                         note: "Pad 6 (note 41): open the Music app"),
+        ]
+        return makePreset(
+            name: "MIDI: Media Deck",
+            tag: "Pads and knobs run the Mac: media keys, volume, brightness",
+            joystickTag: "CC 7 = fader, CC 71 = volume steps, CC 74 = brightness, pads = media",
             bindings: bindings)
     }
 

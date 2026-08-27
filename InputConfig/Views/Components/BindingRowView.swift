@@ -195,9 +195,14 @@ struct BindingRowView: View {
                             .frame(width: 14)
 
                         Menu {
-                            outputTypeMenuItems { firstOutputTypeBinding.wrappedValue = $0 }
+                            outputTypeMenuItems(select: { firstOutputTypeBinding.wrappedValue = $0 },
+                                                selectSystemKind: { kind in
+                                                    guard !binding.outputs.isEmpty else { return }
+                                                    binding.outputs[0].type = .systemAction
+                                                    binding.outputs[0].systemActionKind = kind
+                                                })
                         } label: {
-                            menuChevronLabel(binding.outputs[0].type.displayName)
+                            menuChevronLabel(outputMenuTitle(binding.outputs[0]))
                         }
                         .menuStyle(.borderlessButton)
                         .controlSize(.small)
@@ -877,6 +882,28 @@ struct BindingRowView: View {
                     Button("Channel \(ch)") { binding.input.midiChannel = ch }
                 }
             }
+            // Knob interpretation, for CC only: Switch (the default,
+            // fires past halfway), Dial (speed from centre, like a stick
+            // axis), or Turn (relative nudges per step of rotation).
+            if (binding.input.midiKind ?? .note) == .cc {
+                Section("Knob Mode") {
+                    ForEach(MIDICCMode.allCases) { mode in
+                        Button(mode.displayName) {
+                            // Store nil for the default so pre-existing
+                            // bindings keep byte-identical serialization.
+                            binding.input.midiCCMode = (mode == .threshold) ? nil : mode
+                        }
+                    }
+                }
+                if binding.input.midiCCMode == .relative {
+                    Section("Turn Step") {
+                        Button("Fine (2 units per nudge)")   { binding.input.midiTurnStep = 2 }
+                        Button("Normal (4 units per nudge)") { binding.input.midiTurnStep = nil }
+                        Button("Coarse (8 units per nudge)") { binding.input.midiTurnStep = 8 }
+                        Button("Chunky (16 units per nudge)") { binding.input.midiTurnStep = 16 }
+                    }
+                }
+            }
             // Continuous controllers can be bound as a half-axis, so
             // offer the direction alongside the channel rather than
             // adding a fourth column just for MIDI.
@@ -888,10 +915,22 @@ struct BindingRowView: View {
                 }
             }
         } label: {
-            menuChevronLabel(binding.input.midiChannel.map { "Ch \($0)" } ?? "Any ch")
+            menuChevronLabel(midiChannelLabel)
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
+    }
+
+    /// Channel-column label: channel (or Any), prefixed with the knob
+    /// mode badge when a CC binding uses a non-default mode, so a Dial
+    /// or Turn binding is recognisable without opening the menu.
+    private var midiChannelLabel: String {
+        let ch = binding.input.midiChannel.map { "Ch \($0)" } ?? "Any ch"
+        if (binding.input.midiKind ?? .note) == .cc,
+           let badge = binding.input.midiCCMode?.badge {
+            return "\(badge) \u{00B7} \(ch)"
+        }
+        return ch
     }
 
     // MARK: - Index / Direction Accessibility
@@ -1247,6 +1286,17 @@ struct BindingRowView: View {
         case .key:
             KeyCodePicker(selectedCode: keyCodeBinding(at: index))
 
+        case .absoluteVolume:
+            // No parameters: the fader simply follows the input's
+            // position. Explain the pairing so it isn't a mystery row.
+            Text("Volume follows this control's position, 0 to 100%")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+
+        case .systemAction:
+            systemActionControls(at: index)
+
         case .typeText:
             TextField("Text to type", text: outputTextBinding(at: index))
                 .textFieldStyle(.roundedBorder)
@@ -1514,10 +1564,14 @@ struct BindingRowView: View {
                     .frame(width: 14)
 
                 Menu {
-                    outputTypeMenuItems { outputTypeBinding(at: index).wrappedValue = $0 }
+                    outputTypeMenuItems(select: { outputTypeBinding(at: index).wrappedValue = $0 },
+                                        selectSystemKind: { kind in
+                                            binding.outputs[index].type = .systemAction
+                                            binding.outputs[index].systemActionKind = kind
+                                        })
                 } label: {
                     menuChevronLabel(binding.outputs.indices.contains(index)
-                                     ? binding.outputs[index].type.displayName
+                                     ? outputMenuTitle(binding.outputs[index])
                                      : OutputType.key.displayName)
                 }
                 .menuStyle(.borderlessButton)
@@ -1739,7 +1793,8 @@ struct BindingRowView: View {
     /// Shared by the primary and secondary output menus; built lazily on
     /// open like KeyCodePicker, so rows render without pre-building it.
     @ViewBuilder
-    private func outputTypeMenuItems(select: @escaping (OutputType) -> Void) -> some View {
+    private func outputTypeMenuItems(select: @escaping (OutputType) -> Void,
+                                     selectSystemKind: @escaping (SystemActionKind) -> Void) -> some View {
         Section("Keyboard") {
             Button(OutputType.key.displayName) { select(.key) }
             Button(OutputType.typeText.displayName) { select(.typeText) }
@@ -1759,6 +1814,20 @@ struct BindingRowView: View {
         }
         Section("App") {
             Button(OutputType.appAction.displayName) { select(.appAction) }
+        }
+        Section("System") {
+            Button(OutputType.absoluteVolume.displayName) { select(.absoluteVolume) }
+            ForEach(SystemActionKind.grouped, id: \.category) { group in
+                Menu(group.category) {
+                    ForEach(group.kinds) { kind in
+                        Button {
+                            selectSystemKind(kind)
+                        } label: {
+                            Label(kind.displayName, systemImage: kind.iconName)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2545,11 +2614,87 @@ struct BindingRowView: View {
         }
     }
 
+    /// Parameter editor for .systemAction outputs. Parameterless kinds get
+    /// a one-line explainer; Run Shortcut gets a text field plus a picker
+    /// of the user's installed Shortcuts; Open App / Open URL get a field.
+    @ViewBuilder
+    private func systemActionControls(at index: Int) -> some View {
+        let kind = binding.outputs[index].systemActionKind ?? .playPause
+        switch kind {
+        case .runShortcut:
+            HStack(spacing: 6) {
+                TextField("Shortcut name", text: outputTextBinding(at: index))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .frame(minWidth: 140)
+                Menu {
+                    let names = SystemActionService.shared.installedShortcuts()
+                    if names.isEmpty {
+                        Text("No Shortcuts found")
+                    } else {
+                        ForEach(names, id: \.self) { name in
+                            Button(name) { binding.outputs[index].text = name }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Pick one of your installed Shortcuts.")
+            }
+        case .openApp:
+            TextField("App name or full path", text: outputTextBinding(at: index))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(minWidth: 160)
+                .help("An app name like Safari, a bundle identifier, or a full .app path.")
+        case .openURL:
+            TextField("https:// or any URL scheme", text: outputTextBinding(at: index))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(minWidth: 160)
+                .help("Opens in the default handler. Any scheme works: https, mailto, facetime, shortcuts.")
+        default:
+            Text(systemActionExplainer(kind))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+    }
+
+    private func systemActionExplainer(_ kind: SystemActionKind) -> String {
+        switch kind {
+        case .volumeUp, .volumeDown: return "Nudges the Mac's volume one step per press"
+        case .muteToggle: return "Toggles the Mac's output mute"
+        case .playPause, .nextTrack, .previousTrack: return "Sends the keyboard's media key"
+        case .brightnessUp, .brightnessDown: return "Nudges the built-in display's brightness"
+        case .missionControl: return "Opens Mission Control"
+        case .launchpad: return "Opens Launchpad"
+        case .spotlight: return "Presses Cmd+Space"
+        case .lockScreen: return "Locks the screen (Ctrl+Cmd+Q)"
+        case .screenshotMenu: return "Opens the screenshot toolbar (Cmd+Shift+5)"
+        case .runShortcut, .openApp, .openURL: return ""
+        }
+    }
+
+    /// Title for the output-type menu. System Function rows show the
+    /// specific function ("Volume Up"), not the generic category.
+    private func outputMenuTitle(_ output: OutputAction) -> String {
+        if output.type == .systemAction, let kind = output.systemActionKind {
+            return kind.displayName
+        }
+        return output.type.displayName
+    }
+
     private func outputIcon(for action: OutputAction) -> String {
         switch action.type {
         case .key: return "keyboard"
         case .typeText: return "text.cursor"
         case .appAction: return "arrow.triangle.2.circlepath"
+        case .absoluteVolume: return "speaker.wave.2.fill"
+        case .systemAction: return action.systemActionKind?.iconName ?? "gearshape.fill"
         case .mouseButton, .mouseMotion, .mouseWheel, .mouseWheelStep: return "computermouse"
         case .midiNote: return "music.note"
         case .midiCC: return "slider.horizontal.3"
@@ -2563,6 +2708,8 @@ struct BindingRowView: View {
         switch action.type {
         case .key, .typeText: return .orange
         case .appAction: return .teal
+        case .absoluteVolume: return .teal
+        case .systemAction: return .teal
         case .mouseButton, .mouseMotion, .mouseWheel, .mouseWheelStep: return .purple
         case .midiNote, .midiCC, .midiPitchBend, .midiProgramChange, .midiTransport: return .pink
         }

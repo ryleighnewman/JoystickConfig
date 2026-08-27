@@ -53,12 +53,27 @@ struct ContentView: View {
     /// default so the shipping UI is clean; toggled from Settings → Advanced.
     @AppStorage("InputConfig.showDebugLog") private var showDebugLog = false
     @State private var showingSmartMaker = false
+    /// The bundle's marketing version, e.g. "1.3".
+    static var currentShortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
     @State private var editingPreset: Preset?
+    /// What's New popup: shown once when the app runs a version the user
+    /// hasn't seen. Empty string = fresh install (stamp silently, no popup -
+    /// the welcome screen already explains the app).
+    @AppStorage("InputConfig.lastSeenVersion") private var lastSeenVersion: String = ""
+    @State private var showingWhatsNew: Bool = false
     @State private var newlyCreatedPresetId: UUID?
     @State private var showingImportSheet = false
     @State private var presentedDemoKind: FeatureDemoKind?
     @State private var showingStats: Bool = false
-    @State private var showingSettingsSheet: Bool = false
+    /// The settings sheet, presented item-style so the tab travels WITH
+    /// the presentation: nil = closed, otherwise the tab to open on.
+    /// (A Bool + separate tab state raced: SwiftUI could present with the
+    /// sheet content closure from the previous body pass, ignoring a tab
+    /// set in the same tick.)
+    @State private var settingsSheetTab: SettingsView.SettingsTab? = nil
     @State private var showingTouchpadCalibrationFromMenu: Bool = false
     @State private var showingMotionCalibrationFromMenu: Bool = false
     /// Carries a preset waiting for the user to acknowledge a calibration
@@ -139,7 +154,7 @@ struct ContentView: View {
             // green dot) and the toolbar reads cleaner without them.
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showingSettingsSheet = true
+                    settingsSheetTab = .general
                 } label: {
                     Image(systemName: "gear")
                         .symbolRenderingMode(.hierarchical)
@@ -181,18 +196,18 @@ struct ContentView: View {
             .environmentObject(controllerService)
             .glassBackground()
         }
-        .sheet(isPresented: $showingSettingsSheet) {
+        .sheet(item: $settingsSheetTab) { tab in
             // Done lives in a translucent footer inside the sheet rather than
             // the system confirmation bar, which draws its own opaque
             // background and broke the frosted look at the bottom of Settings.
             VStack(spacing: 0) {
-                SettingsView()
+                SettingsView(initialTab: tab)
                     .environmentObject(presetStore)
                     .environmentObject(controllerService)
                 Divider()
                 HStack {
                     Spacer()
-                    Button("Done") { showingSettingsSheet = false }
+                    Button("Done") { settingsSheetTab = nil }
                         .buttonStyle(.solid)
                         .keyboardShortcut(.defaultAction)
                 }
@@ -324,6 +339,21 @@ struct ContentView: View {
                 mappingEngine.outputsPaused = false
             }
         }
+        .sheet(isPresented: $showingWhatsNew, onDismiss: {
+            lastSeenVersion = Self.currentShortVersion
+        }) {
+            WhatsNewView()
+                .glassBackground()
+        }
+        .onAppear {
+            let current = Self.currentShortVersion
+            if lastSeenVersion.isEmpty {
+                // Fresh install: nothing is "new", just remember where we are.
+                lastSeenVersion = current
+            } else if lastSeenVersion != current {
+                showingWhatsNew = true
+            }
+        }
         .sheet(item: $editingPreset, onDismiss: handleEditorDismiss) { preset in
             PresetEditorView(preset: preset,
                              enginePausedNotice: engineWasRunningBeforeEdit,
@@ -373,7 +403,7 @@ struct ContentView: View {
                 },
                 onOpenSettings: {
                     presentedDemoKind = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showingSettingsSheet = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { settingsSheetTab = .general }
                 }
             )
             .glassBackground()
@@ -388,7 +418,7 @@ struct ContentView: View {
             editingPreset: $editingPreset,
             showingSmartMaker: $showingSmartMaker,
             showingStats: $showingStats,
-            showingSettingsSheet: $showingSettingsSheet,
+            settingsSheetTab: $settingsSheetTab,
             showingMotion: $showingMotionCalibrationFromMenu,
             showingTouchpad: $showingTouchpadCalibrationFromMenu,
             presentedDemoKind: $presentedDemoKind,
@@ -1462,6 +1492,14 @@ struct ContentView: View {
                             Label("Open Help Guide", systemImage: "questionmark.circle")
                         }
                         .buttonStyle(.solidSecondary)
+
+                        Button {
+                            settingsSheetTab = .about
+                        } label: {
+                            Label("About", systemImage: "info.circle")
+                        }
+                        .buttonStyle(.solidSecondary)
+                        .help("The story behind InputConfig, the changelog, and ways to say hi")
                     }
                 }
 
@@ -1481,6 +1519,22 @@ struct ContentView: View {
                              icon: "gamecontroller.fill",
                              detail: "DualSense, DualShock 4, Xbox, Switch Pro, Joy-Cons, Stadia, 8BitDo, and any MFi gamepad.",
                              tint: .cyan)
+                    demoCard(kind: .midiInput,
+                             icon: "pianokeys",
+                             detail: "Use a MIDI keyboard or knob box as input, no controller needed. Knobs can switch, scroll with speed, nudge in steps, or work the Mac's volume like a fader.",
+                             tint: .pink)
+                    demoCard(kind: .systemControl,
+                             icon: "gearshape.2.fill",
+                             detail: "Outputs can run the Mac itself: volume, mute, media keys, brightness, Mission Control, lock screen, Siri Shortcuts, open any app or URL.",
+                             tint: .teal)
+                    demoCard(kind: .siriShortcuts,
+                             icon: "sparkles.rectangle.stack.fill",
+                             detail: "Run any Siri Shortcut from any input: scenes, timers, Do Not Disturb, whole automations - one press, no focus stolen.",
+                             tint: .indigo)
+                    demoCard(kind: .inputRemap,
+                             icon: "keyboard.badge.ellipsis",
+                             detail: "Keyboards and extra mouse buttons work as inputs too. Turn a spare numpad into a macro deck or remap keys app-wide.",
+                             tint: .orange)
                     demoCard(kind: .variableSensitivity,
                              icon: "slider.horizontal.below.rectangle",
                              detail: "Joystick depth scales output speed. Pick linear, smooth, or aggressive curves per binding.",
@@ -1501,6 +1555,18 @@ struct ContentView: View {
                              icon: "square.stack.3d.up.fill",
                              detail: "One press fires key + click + MIDI + speech in parallel. Different from a macro - all at once, not in sequence.",
                              tint: .blue)
+                    demoCard(kind: .holdDoubleTap,
+                             icon: "hand.tap.fill",
+                             detail: "Press, hold, and double-tap each fire their own outputs. One button, three actions, adjustable timing.",
+                             tint: .blue)
+                    demoCard(kind: .appAutoSwitch,
+                             icon: "app.connected.to.app.below.fill",
+                             detail: "Presets activate themselves when their app comes to the front - the game preset in the game, the DAW preset in the DAW.",
+                             tint: .green)
+                    demoCard(kind: .autoLaunch,
+                             icon: "app.badge.fill",
+                             detail: "Per-preset Automation & Gaming Utilities: open an app on activate, confine the cursor, hide the system pointer.",
+                             tint: .green)
                     demoCard(kind: .touchpad,
                              icon: "rectangle.and.hand.point.up.left.fill",
                              detail: "DualSense and DualShock 4 touchpad surfaces can drive the mouse cursor.",
@@ -1509,6 +1575,10 @@ struct ContentView: View {
                              icon: "gyroscope",
                              detail: "Tilt-to-aim with the controller's gyroscope. Works on DualSense, DualSense Edge, and DualShock 4.",
                              tint: .teal)
+                    demoCard(kind: .cursorRegions,
+                             icon: "rectangle.dashed",
+                             detail: "Draw screen regions that act as inputs: the cursor entering one can press keys, run macros, or fire anything else.",
+                             tint: .purple)
                     demoCard(kind: .haptic,
                              icon: "waveform",
                              detail: "Vibrate the controller when a binding fires. Works with DualSense, DualSense Edge, and similar.",
@@ -1517,10 +1587,6 @@ struct ContentView: View {
                              icon: "speaker.wave.2.fill",
                              detail: "Speak a custom phrase on press through Mac speakers or the controller speaker.",
                              tint: .indigo)
-                    demoCard(kind: .lightBar,
-                             icon: "light.beacon.max.fill",
-                             detail: "Pick a color with the picker, set brightness, or run an RGB cycle on DualSense controllers.",
-                             tint: .red)
                     demoCard(kind: .midi,
                              icon: "music.note.list",
                              detail: "Send Note, CC, and Pitch Bend through a virtual MIDI port to GarageBand, Logic, Ableton, and more.",
@@ -1529,14 +1595,14 @@ struct ContentView: View {
                              icon: "dial.high.fill",
                              detail: "Sticks and triggers send continuous MIDI Control Change values. Soft knobs for your DAW.",
                              tint: .purple)
-                    demoCard(kind: .autoLaunch,
-                             icon: "app.badge.fill",
-                             detail: "Per-preset Automation & Gaming Utilities: open an app on activate, confine the cursor, hide the system pointer.",
-                             tint: .green)
                     demoCard(kind: .stats,
                              icon: "chart.bar.fill",
                              detail: "Lifetime counts of presses, motion, scrolls, and MIDI events with most-used inputs and presets. All local, no telemetry.",
                              tint: .brown)
+                    demoCard(kind: .lightBar,
+                             icon: "light.beacon.max.fill",
+                             detail: "Pick a color with the picker, set brightness, or run an RGB cycle on DualSense controllers.",
+                             tint: .red)
                 }
                 .padding(.horizontal, 28)
 
@@ -1548,7 +1614,44 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
-                    .padding(.bottom, 30)
+
+                // Sister-app shoutout, anchoring the bottom of the homepage.
+                // Mirrors the shoutout YapToText's About page gives
+                // InputConfig, so the two apps point at each other.
+                HStack(spacing: 14) {
+                    Image("YapToTextIcon")
+                        .resizable().scaledToFit()
+                        .frame(width: 48, height: 48)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Like InputConfig? Try YapToText.")
+                            .font(.callout.weight(.semibold))
+                        Text("From the same developer: ultra-powerful dictation, processed entirely on your Mac, with advanced customization for exactly how you work. Free, private, and completely offline.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 10)
+                    Link(destination: URL(string: "https://apps.apple.com/us/app/yaptotext/id6786382289?mt=12")!) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.forward.app")
+                            Text("App Store")
+                        }
+                        .font(.callout)
+                    }
+                    .help("Opens YapToText on the Mac App Store. It's free.")
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.secondary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+                )
+                .padding(.horizontal, 28)
+                .padding(.bottom, 30)
             }
             .frame(maxWidth: .infinity)
         }
@@ -1591,7 +1694,7 @@ struct ContentView: View {
             // Reduce Motion pauses the timeline and pins the pulse at
             // fully highlighted instead of looping.
             TimelineView(.animation(minimumInterval: 1.0 / 30.0,
-                                    paused: !isHighlighted || reduceMotion)) { context in
+                                    paused: !isHighlighted || reduceMotion || AppA11y.reduceMotion)) { context in
                 let pulse: Double = {
                     guard isHighlighted else { return 0 }
                     if reduceMotion { return 1.0 }
@@ -2157,7 +2260,7 @@ struct ContentView: View {
                     TutorialState.shared.simulateClickThen(
                         at: SpotlightID.settingsButton
                     ) {
-                        showingSettingsSheet = true
+                        settingsSheetTab = .general
                     }
                 }
             ),
@@ -2173,7 +2276,7 @@ struct ContentView: View {
                     // The previous Settings step left the sheet open;
                     // close it before the Help menu reference makes
                     // sense to the user.
-                    showingSettingsSheet = false
+                    settingsSheetTab = nil
                     showingStats = false
                 }
             ),
@@ -2185,7 +2288,7 @@ struct ContentView: View {
                 spotlight: SpotlightID.importButton,
                 tip: "Drag preset JSONs straight onto the icon to import them too.",
                 action: {
-                    showingSettingsSheet = false
+                    settingsSheetTab = nil
                     showingStats = false
                 }
             ),
@@ -2207,7 +2310,7 @@ struct ContentView: View {
                 action: {
                     selectedPresetId = nil
                     editingPreset = nil
-                    showingSettingsSheet = false
+                    settingsSheetTab = nil
                     showingStats = false
                 }
             ),
@@ -2356,7 +2459,7 @@ struct ContentView: View {
                     selectedPresetId = nil
                     editingPreset = nil
                     showingStats = false
-                    showingSettingsSheet = false
+                    settingsSheetTab = nil
                     tutorialFeatureSpotlight = nil
                 }
             ),
@@ -3542,7 +3645,10 @@ struct PresetDetailView: View {
             let slot = connected ? connectedSlots[idx] : idx
             return VisualizerSlot(id: connected ? "slot-\(slot)" : "empty-\(idx)", idx: idx, slot: slot)
         }
-        if connectedSlots.isEmpty && presetJoystickCount == 0 {
+        let presetUsesMIDI = preset.joysticks.contains { group in
+            group.bindings.contains { $0.input.type == .midi }
+        }
+        if connectedSlots.isEmpty && presetJoystickCount == 0 && !presetUsesMIDI {
             Text("Connect a controller to see its live state here.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -3583,6 +3689,7 @@ struct PresetDetailView: View {
                     )
                     .environmentObject(controllerService)
                 }
+
             }
         }
     }
@@ -4786,7 +4893,7 @@ struct DebugAutomationHooks: ViewModifier {
     @Binding var editingPreset: Preset?
     @Binding var showingSmartMaker: Bool
     @Binding var showingStats: Bool
-    @Binding var showingSettingsSheet: Bool
+    @Binding var settingsSheetTab: SettingsView.SettingsTab?
     @Binding var showingMotion: Bool
     @Binding var showingTouchpad: Bool
     @Binding var presentedDemoKind: FeatureDemoKind?
@@ -4828,7 +4935,8 @@ struct DebugAutomationHooks: ViewModifier {
                 switch note.object as? String {
                 case "smartmaker": showingSmartMaker = true
                 case "stats": showingStats = true
-                case "settings": showingSettingsSheet = true
+                case "settings": settingsSheetTab = .general
+                case "about": settingsSheetTab = .about
                 case "motion": showingMotion = true
                 case "touchpad": showingTouchpad = true
                 default: break
@@ -4865,9 +4973,10 @@ struct DebugAutomationHooks: ViewModifier {
         selectedPresetId.flatMap { id in presetStore.presets.first(where: { $0.id == id }) }
     }
     private func closeSheets() {
+        editingPreset = nil
         showingSmartMaker = false
         showingStats = false
-        showingSettingsSheet = false
+        settingsSheetTab = nil
         showingMotion = false
         showingTouchpad = false
         presentedDemoKind = nil

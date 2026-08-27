@@ -379,6 +379,14 @@ final class MIDIInputService: @unchecked Sendable {
     private var notesDown: [String: [Int: Set<Int>]] = [:]
     /// deviceID -> channel -> cc number -> last value (0-127).
     private var ccValues: [String: [Int: [Int: Int]]] = [:]
+    /// deviceID -> channel -> cc number -> arrival order of the last value.
+    /// Queries with a nil channel or device match several streams at once;
+    /// the FRESHEST stream must win, not the largest value. Otherwise a
+    /// stale high value from a replugged or disconnected device masks the
+    /// live knob (max(stale 64, live 40) returned 64 and froze the dial).
+    private var ccStamps: [String: [Int: [Int: UInt64]]] = [:]
+    /// Monotonic arrival counter backing the freshness stamps.
+    private var arrivalCounter: UInt64 = 0
     /// deviceID -> channel -> last pitch bend, normalized -1...1.
     private var pitchBend: [String: [Int: Float]] = [:]
     /// deviceID -> channel -> last channel aftertouch (0-127).
@@ -386,8 +394,51 @@ final class MIDIInputService: @unchecked Sendable {
     /// deviceID -> channel -> program numbers seen since the last poll.
     /// Program Change is momentary, so these are consumed by the engine.
     private var programHits: [String: [Int: Set<Int>]] = [:]
+    /// Relative ("Turn") mode bookkeeping. For every (device|channel|cc)
+    /// stream we remember the previous raw value and accumulate how far
+    /// the knob has travelled in each direction since the engine last
+    /// consumed a step. Travel is in raw CC units (0-127).
+    private var ccLastRaw: [String: Int] = [:]
+    private var ccUpTravel: [String: Int] = [:]
+    private var ccDownTravel: [String: Int] = [:]
+    /// Alternation phase per consumer key, so a fast continuous turn
+    /// produces press / release / press pulses across poll frames
+    /// instead of one long held press (which the OS would treat as a
+    /// single keystroke plus key-repeat).
+    private var relativePhase: [String: Bool] = [:]
+    /// Default raw CC units of travel per relative step. 4 units means a
+    /// full end-to-end sweep of a knob fires about 32 nudges, which
+    /// tracks how hardware endless encoders feel. Bindings can override
+    /// per row (Turn Step in the knob menu).
+    static let defaultRelativeStepUnits = 4
     /// Connected sources, for the UI's device picker.
     private var devices: [Device] = []
+    /// Bumped once per recognised incoming message. The Live Visualizer
+    /// polls this to know whether anything changed since its last frame,
+    /// so its render clock can pause while the MIDI gear sits idle.
+    private var eventCounter: UInt64 = 0
+    /// deviceID -> channel -> last Program Change (sticky, for display -
+    /// unlike `programHits`, which the engine consumes).
+    private var lastProgram: [String: [Int: Int]] = [:]
+    /// deviceID -> note -> velocity of the CURRENT press (removed on
+    /// release). Drives velocity-shaded keys in the visualizer.
+    private var noteVel: [String: [Int: Int]] = [:]
+    /// deviceID -> channel -> event stamp of the channel's last message.
+    private var channelStamps: [String: [Int: UInt64]] = [:]
+    /// Per-device rolling event log for the visualizer (newest first).
+    private var recentEvents: [String: [String]] = [:]
+    /// Last CC value the ring logged, per stream, so a knob sweep logs a
+    /// handful of lines instead of a hundred.
+    private var lastLoggedCC: [String: Int] = [:]
+
+    /// Append one line to a device's event ring (newest first, capped).
+    /// Caller must hold `lock`.
+    private func pushEvent(_ deviceID: String, _ text: String) {
+        var ring = recentEvents[deviceID] ?? []
+        ring.insert(text, at: 0)
+        if ring.count > 8 { ring.removeLast(ring.count - 8) }
+        recentEvents[deviceID] = ring
+    }
 
     /// Fired on the main actor for every recognised message while a scan
     /// is active, so the binding editor's Scan button can capture MIDI.
@@ -492,6 +543,18 @@ final class MIDIInputService: @unchecked Sendable {
 
         lock.lock()
         devices = found
+        // Drop remembered values for devices that are gone, so a
+        // disconnected keyboard's last knob positions can never shadow
+        // a live device on any-device bindings.
+        let liveIDs = Set(found.map(\.id))
+        for dead in ccValues.keys where !liveIDs.contains(dead) {
+            ccValues.removeValue(forKey: dead)
+            ccStamps.removeValue(forKey: dead)
+            notesDown.removeValue(forKey: dead)
+            pitchBend.removeValue(forKey: dead)
+            aftertouch.removeValue(forKey: dead)
+            programHits.removeValue(forKey: dead)
+        }
         lock.unlock()
     }
 
@@ -554,14 +617,42 @@ final class MIDIInputService: @unchecked Sendable {
         var scanEvent: InputEvent?
 
         lock.lock()
+        if status == 0x8 || status == 0x9 || status == 0xB || status == 0xC
+            || status == 0xD || status == 0xE {
+            eventCounter &+= 1
+            channelStamps[deviceID, default: [:]][channel] = eventCounter
+        }
         switch status {
         case 0x9 where data2 > 0:   // note on with velocity
             notesDown[deviceID, default: [:]][channel, default: []].insert(data1)
+            noteVel[deviceID, default: [:]][data1] = data2
+            pushEvent(deviceID, "\(MIDIService.noteName(data1)) on · vel \(data2) · ch \(channel)")
             scanEvent = .midi(.note, number: data1, channel: channel, deviceID: deviceID)
         case 0x8, 0x9:              // note off (or note on, velocity 0)
             notesDown[deviceID, default: [:]][channel, default: []].remove(data1)
+            noteVel[deviceID]?.removeValue(forKey: data1)
+            pushEvent(deviceID, "\(MIDIService.noteName(data1)) off · ch \(channel)")
         case 0xB:                   // control change
+            // Relative-mode travel accumulation. Delta against the last
+            // raw value for this exact (device, channel, cc) stream; the
+            // first message just seeds the baseline.
+            let rawKey = "\(deviceID)|\(channel)|\(data1)"
+            if let prev = ccLastRaw[rawKey] {
+                let delta = data2 - prev
+                if delta > 0 { ccUpTravel[rawKey, default: 0] += delta }
+                else if delta < 0 { ccDownTravel[rawKey, default: 0] -= delta }
+            }
+            ccLastRaw[rawKey] = data2
             ccValues[deviceID, default: [:]][channel, default: [:]][data1] = data2
+            // Log the sweep sparsely: endpoints always, then every 16 units.
+            let logKey = "\(deviceID)|\(channel)|\(data1)"
+            if data2 == 0 || data2 == 127
+                || abs(data2 - (lastLoggedCC[logKey] ?? -100)) >= 16 {
+                lastLoggedCC[logKey] = data2
+                pushEvent(deviceID, "CC \(data1) = \(data2) · ch \(channel)")
+            }
+            arrivalCounter &+= 1
+            ccStamps[deviceID, default: [:]][channel, default: [:]][data1] = arrivalCounter
             // Only offer a knob to Scan once it's moved meaningfully, so
             // idle controllers streaming zeros don't hijack the capture.
             if data2 > 0 {
@@ -577,6 +668,8 @@ final class MIDIInputService: @unchecked Sendable {
             aftertouch[deviceID, default: [:]][channel] = data1
         case 0xC:                   // program change
             programHits[deviceID, default: [:]][channel, default: []].insert(data1)
+            lastProgram[deviceID, default: [:]][channel] = data1
+            pushEvent(deviceID, "Program \(data1) · ch \(channel)")
             scanEvent = .midi(.programChange, number: data1, channel: channel, deviceID: deviceID)
         default:
             break
@@ -588,6 +681,81 @@ final class MIDIInputService: @unchecked Sendable {
         if let handler, let scanEvent {
             DispatchQueue.main.async { handler(scanEvent) }
         }
+    }
+
+    // MARK: Live Visualizer snapshot
+
+    /// One CC stream's latest value, for the visualizer's knob row.
+    struct CCActivity: Identifiable, Hashable {
+        let deviceID: String
+        let channel: Int
+        let cc: Int
+        let value: Int
+        let stamp: UInt64
+        var id: String { "\(deviceID)|\(channel)|\(cc)" }
+    }
+
+    /// Everything the visualizer needs about one connected device.
+    struct DeviceActivity: Identifiable, Hashable {
+        let id: String        // deviceID
+        let name: String
+        /// Notes currently held, merged across channels (the strip shows
+        /// pitch, not channel).
+        let notesDown: Set<Int>
+        /// Every CC stream seen so far, most recently moved first.
+        let ccs: [CCActivity]
+        /// Latest pitch bend across channels, -1...1 (nil = never moved).
+        let pitchBend: Float?
+        /// Latest channel aftertouch 0-127 (nil = never seen).
+        let aftertouch: Int?
+        /// Last Program Change received (sticky).
+        let lastProgram: Int?
+        /// Velocity of each currently held note (for key shading).
+        let velocities: [Int: Int]
+        /// Channel -> stamp of that channel's most recent message.
+        let channelStamps: [Int: UInt64]
+        /// Rolling event log, newest first.
+        let recent: [String]
+        /// Total recognised messages this session (all devices share the
+        /// counter; shown as session activity).
+        let eventCount: UInt64
+    }
+
+    /// Copy of the live state for rendering. Cheap: called at most 30 Hz
+    /// by one view, and only while MIDI traffic is actually arriving.
+    func activitySnapshot() -> [DeviceActivity] {
+        lock.lock(); defer { lock.unlock() }
+        return devices.map { device in
+            let dev = device.id
+            var notes: Set<Int> = []
+            for (_, held) in notesDown[dev] ?? [:] { notes.formUnion(held) }
+            var ccList: [CCActivity] = []
+            for (ch, byCC) in ccValues[dev] ?? [:] {
+                for (cc, value) in byCC {
+                    let stamp = ccStamps[dev]?[ch]?[cc] ?? 0
+                    ccList.append(CCActivity(deviceID: dev, channel: ch,
+                                             cc: cc, value: value, stamp: stamp))
+                }
+            }
+            ccList.sort { $0.stamp > $1.stamp }
+            let bend = pitchBend[dev]?.values.first
+            let touch = aftertouch[dev]?.values.max()
+            let prog = lastProgram[dev]?.values.first
+            return DeviceActivity(id: dev, name: device.name,
+                                  notesDown: notes, ccs: ccList,
+                                  pitchBend: bend, aftertouch: touch,
+                                  lastProgram: prog,
+                                  velocities: noteVel[dev] ?? [:],
+                                  channelStamps: channelStamps[dev] ?? [:],
+                                  recent: recentEvents[dev] ?? [],
+                                  eventCount: eventCounter)
+        }
+    }
+
+    /// Monotonic count of recognised incoming messages, for idle gating.
+    func activityCounter() -> UInt64 {
+        lock.lock(); defer { lock.unlock() }
+        return eventCounter
     }
 
     // MARK: Queries used by MappingEngine
@@ -603,13 +771,22 @@ final class MIDIInputService: @unchecked Sendable {
         return false
     }
 
-    /// Last CC value 0-127, or nil if that CC has not been seen.
+    /// Last CC value 0-127, or nil if that CC has not been seen. When the
+    /// binding matches several streams (nil channel or device), the stream
+    /// that reported most recently wins - the physical knob the user is
+    /// touching right now - never a stale value from another device.
     func ccValue(_ cc: Int, channel: Int?, deviceID: String?) -> Int? {
         lock.lock(); defer { lock.unlock() }
         var best: Int?
+        var bestStamp: UInt64 = 0
         for (dev, byChannel) in ccValues where deviceID == nil || dev == deviceID {
             for (ch, ccs) in byChannel where channel == nil || ch == channel {
-                if let v = ccs[cc] { best = max(best ?? 0, v) }
+                guard let v = ccs[cc] else { continue }
+                let stamp = ccStamps[dev]?[ch]?[cc] ?? 0
+                if best == nil || stamp > bestStamp {
+                    best = v
+                    bestStamp = stamp
+                }
             }
         }
         return best
@@ -637,6 +814,40 @@ final class MIDIInputService: @unchecked Sendable {
             }
         }
         return out
+    }
+
+    /// One step of relative ("Turn") travel for the given CC, if enough
+    /// has accumulated. `up` selects the direction. Consuming alternates
+    /// with a forced release frame, so back-to-back steps reach the OS as
+    /// distinct key presses rather than one held key. `channel`/`device`
+    /// nil matches any stream, matching how the other queries behave.
+    func consumeRelativeStep(cc: Int, channel: Int?, deviceID: String?,
+                             up: Bool, consumerKey: String,
+                             stepUnits: Int = MIDIInputService.defaultRelativeStepUnits) -> Bool {
+        let step = max(1, stepUnits)
+        lock.lock(); defer { lock.unlock() }
+
+        // Release frame after every press frame.
+        if relativePhase[consumerKey] == true {
+            relativePhase[consumerKey] = false
+            return false
+        }
+
+        var travel = up ? ccUpTravel : ccDownTravel
+        for (rawKey, amount) in travel where amount >= step {
+            let parts = rawKey.split(separator: "|", maxSplits: 2).map(String.init)
+            guard parts.count == 3,
+                  let ch = Int(parts[1]), let number = Int(parts[2]) else { continue }
+            guard number == cc else { continue }
+            if let channel, ch != channel { continue }
+            if let deviceID, parts[0] != deviceID { continue }
+
+            travel[rawKey] = amount - step
+            if up { ccUpTravel = travel } else { ccDownTravel = travel }
+            relativePhase[consumerKey] = true
+            return true
+        }
+        return false
     }
 
     /// Whether the given program change arrived since the last call, and
@@ -686,6 +897,9 @@ final class MIDIInputService: @unchecked Sendable {
         lock.lock()
         notesDown.removeAll()
         programHits.removeAll()
+        ccUpTravel.removeAll()
+        ccDownTravel.removeAll()
+        relativePhase.removeAll()
         lock.unlock()
     }
 }

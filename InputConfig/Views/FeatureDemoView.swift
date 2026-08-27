@@ -18,6 +18,13 @@ enum FeatureDemoKind: String, CaseIterable, Identifiable {
     case haptic
     case speech
     case lightBar
+    case midiInput
+    case systemControl
+    case siriShortcuts
+    case inputRemap
+    case holdDoubleTap
+    case appAutoSwitch
+    case cursorRegions
     case midi
     case midiCC
     case autoLaunch
@@ -40,10 +47,14 @@ enum FeatureDemoKind: String, CaseIterable, Identifiable {
         case .stackedOutputs:      return "stacked_outputs"
         case .autoLaunch:          return "auto_launch"
         case .midiCC:              return "midi_cc"
+        case .midiInput:           return "midi_input"
+        case .systemControl:       return "system_control"
         case .keyboardMouse:       return "keyboard_mouse"
         // No directly-matching showcase preset for these; their CTA opens the
         // right place instead (see `cta`).
-        case .lightBar, .controllers, .stats: return nil
+        case .lightBar, .controllers, .stats,
+             .siriShortcuts, .inputRemap, .holdDoubleTap,
+             .appAutoSwitch, .cursorRegions: return nil
         }
     }
 
@@ -85,6 +96,13 @@ enum FeatureDemoKind: String, CaseIterable, Identifiable {
         case .stackedOutputs:      return "Stacked Outputs"
         case .autoLaunch:          return "Auto-Launch + Cursor Confine"
         case .midiCC:              return "MIDI CC Dials"
+        case .midiInput:           return "MIDI Devices as Input"
+        case .systemControl:       return "System Functions"
+        case .siriShortcuts:       return "Siri Shortcuts"
+        case .inputRemap:          return "Keyboard & Mouse as Input"
+        case .holdDoubleTap:       return "Hold & Double-Tap"
+        case .appAutoSwitch:       return "Per-App Auto-Switch"
+        case .cursorRegions:       return "Cursor Regions"
         }
     }
 
@@ -120,6 +138,20 @@ enum FeatureDemoKind: String, CaseIterable, Identifiable {
             return "Wire one input to multiple outputs in parallel - a key AND a mouse click AND a MIDI note AND a spoken phrase, all firing simultaneously. Different from a macro (which is a sequence with delays); stacked outputs are simpler to debug and faster to author."
         case .autoLaunch:
             return "Each preset has its own Automation & Gaming Utilities panel. Activating the preset can auto-launch an app (e.g. Steam, your DAW, a specific game), confine the cursor away from screen edges, auto-recenter it, and hide the system pointer - all turned off when you deactivate. Per-game settings, never global."
+        case .siriShortcuts:
+            return "Any input can run any Shortcut from the Shortcuts app, by name: toggle Do Not Disturb, set a smart-home scene, start a timer, log a workout - entire automations on one pad or button. Shortcuts run in the background without stealing focus, and the binding editor lists your installed Shortcuts so there is nothing to type. Open App and Open URL outputs live in the same menu for launching anything else."
+        case .inputRemap:
+            return "Your Mac keyboard, a second keyboard, or extra mouse buttons can be inputs, not just outputs. Bind any key or button like a controller button: turn a spare numpad into a macro deck, put push-to-talk on a thumb button, or remap keys system-wide. Scan captures the exact key from the exact device, so two keyboards stay independent."
+        case .holdDoubleTap:
+            return "Every binding can carry three actions: press, hold, and double-tap each fire their own outputs, with an adjustable hold threshold and double-tap window per binding. One controller button becomes jump on tap, sprint on hold, and inventory on double-tap."
+        case .appAutoSwitch:
+            return "Presets can activate themselves when a chosen app comes to the front: the game preset in the game, the DAW preset in your DAW, the browsing preset everywhere else. Add bundle identifiers in the editor's Automation panel, flip the global toggle in Settings, and InputConfig does the switching for you."
+        case .cursorRegions:
+            return "Draw regions on the screen that act as inputs: the cursor entering one can press keys, run macros, or fire any other output. Pair with stick- or gyro-driven cursor movement for dwell-free, gaze-style control, or park hot corners anywhere you like."
+        case .systemControl:
+            return "Bind any input to a system function: volume up and down, mute, play / pause and track skip, screen brightness, Mission Control, Launchpad, Spotlight, lock screen, the screenshot toolbar - or run one of your Siri Shortcuts, open any app, or open any URL. Pair them with Turn-mode knobs and a MIDI encoder becomes a hardware volume or brightness dial."
+        case .midiInput:
+            return "Plug in any MIDI keyboard, pad controller, or knob box and use it to drive your Mac, with no game controller connected. Notes and pads act like buttons. Knobs get three modes: Switch fires past halfway, Dial speeds up the further you turn from centre, and Turn fires a nudge per step in either direction. Pair a knob with the System Volume output and it becomes a hardware volume fader: position equals level, and it only takes over once you actually move it."
         case .midiCC:
             return "Bind axes (sticks, triggers) to continuous MIDI Control Change values. Sticks become soft modulation knobs for filter cutoff, expression, channel volume, pan, anything CC-mappable in your DAW. Different from MIDI Notes - CC sends a 0-127 value every poll, perfect for sweeps and automation."
         }
@@ -221,6 +253,13 @@ struct FeatureDemoView: View {
         case .stackedOutputs:      return .blue
         case .autoLaunch:          return .green
         case .midiCC:              return .purple
+        case .midiInput:           return .pink
+        case .systemControl:       return .teal
+        case .siriShortcuts:       return .indigo
+        case .inputRemap:          return .orange
+        case .holdDoubleTap:       return .blue
+        case .appAutoSwitch:       return .green
+        case .cursorRegions:       return .purple
         }
     }
 
@@ -242,6 +281,13 @@ struct FeatureDemoView: View {
         case .stackedOutputs:      return "square.stack.3d.up.fill"
         case .autoLaunch:          return "app.badge.fill"
         case .midiCC:              return "dial.high.fill"
+        case .midiInput:           return "pianokeys"
+        case .systemControl:       return "gearshape.2.fill"
+        case .siriShortcuts:       return "sparkles.rectangle.stack.fill"
+        case .inputRemap:          return "keyboard.badge.ellipsis"
+        case .holdDoubleTap:       return "hand.tap.fill"
+        case .appAutoSwitch:       return "app.connected.to.app.below.fill"
+        case .cursorRegions:       return "rectangle.dashed"
         }
     }
 
@@ -267,6 +313,13 @@ struct FeatureDemoView: View {
             case .stackedOutputs:      StackedOutputsDemo()
             case .autoLaunch:          AutoLaunchDemo()
             case .midiCC:              MidiCCDemo()
+            case .midiInput:           MidiInputDemo()
+            case .systemControl:       SystemControlDemo()
+            case .siriShortcuts:       SiriShortcutsDemo()
+            case .inputRemap:          InputRemapDemo()
+            case .holdDoubleTap:       HoldDoubleTapDemo()
+            case .appAutoSwitch:       AppAutoSwitchDemo()
+            case .cursorRegions:       CursorRegionsDemo()
             }
         }
         .frame(maxWidth: .infinity)
@@ -312,7 +365,7 @@ private struct GradientArrow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-    TimelineView(.animation(paused: reduceMotion)) { context in
+    TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
         let t = context.date.timeIntervalSinceReferenceDate
         let flow = active ? (sin(t * 4) + 1) / 2 : 0.0
 
@@ -354,7 +407,7 @@ private func gradientArrow(active: Bool, tint: Color) -> some View {
 private struct KeyboardMouseDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = t.truncatingRemainder(dividingBy: 4) / 4
             let angle = phase * 2 * .pi
@@ -402,7 +455,7 @@ private struct KeyboardMouseDemo: View {
 private struct MidiDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let beat = Int(t.truncatingRemainder(dividingBy: 1.6) / 0.2) % 8
             // Three DAW icons rotate every ~2 seconds.
@@ -475,7 +528,7 @@ private struct MidiDemo: View {
 private struct VariableSensitivityDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // depth oscillates between 0 and 1 over 3 seconds
             let depth = (sin(t / 3 * 2 * .pi) + 1) / 2
@@ -565,7 +618,7 @@ private struct VariableSensitivityDemo: View {
 private struct DeadzoneDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Thumb traces an outward spiral so it crosses both rings.
             let phase = t.truncatingRemainder(dividingBy: 5) / 5
@@ -619,7 +672,7 @@ private struct DeadzoneDemo: View {
 private struct MacrosDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let cyclePos = t.truncatingRemainder(dividingBy: 2.5)
 
@@ -687,7 +740,7 @@ private struct MacrosDemo: View {
 private struct HapticDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Press cycle: 0.0 idle, 0.5 pressed, ~1.2s burst, then ease out
             let cycle = t.truncatingRemainder(dividingBy: 2.4)
@@ -742,7 +795,7 @@ private struct HapticDemo: View {
 private struct SpeechDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // A new phrase fires every 1.5s; "pressed" window lines up with
             // the first 0.5s of each phrase so the arrow visibly flashes
@@ -806,7 +859,7 @@ private struct SpeechDemo: View {
 private struct LightBarDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let hue = t.truncatingRemainder(dividingBy: 6) / 6
             let color = Color(hue: hue, saturation: 0.85, brightness: 1)
@@ -861,7 +914,7 @@ private struct ControllersDemo: View {
     ]
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let active = Int(t.truncatingRemainder(dividingBy: Double(entries.count) * 1.0))
 
@@ -893,7 +946,7 @@ private struct ControllersDemo: View {
 private struct GyroDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Yaw oscillates left/right; pitch traces a slower curve; roll
             // adds a third axis of motion so the 3D model shows off all
@@ -955,7 +1008,7 @@ private struct GyroDemo: View {
 private struct TouchpadDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // Finger traces a figure-8 across the trackpad.
             let p = t.truncatingRemainder(dividingBy: 3) / 3
@@ -1017,7 +1070,7 @@ private struct StatsDemo: View {
     private let labels = ["Cross", "Square", "L Trig", "R Trig", "Stick", "D-Pad", "Touch"]
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = t.truncatingRemainder(dividingBy: 8) / 8
             let presses = Int(125_437 + phase * 4321)
@@ -1113,7 +1166,7 @@ private struct StatsDemo: View {
 private struct ToggleModeDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1199,7 +1252,7 @@ private struct ToggleModeDemo: View {
 private struct StackedOutputsDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1290,7 +1343,7 @@ private struct StackedOutputsDemo: View {
 private struct AutoLaunchDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1393,7 +1446,7 @@ private struct AutoLaunchDemo: View {
 private struct MidiCCDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
             content(at: context.date.timeIntervalSinceReferenceDate)
         }
     }
@@ -1496,6 +1549,338 @@ private struct MidiCCDemo: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .frame(width: 52, alignment: .leading)
+        }
+    }
+}
+
+
+/// MIDI *input* demo: a hardware knob sweeps and the Mac's volume bar
+/// tracks it 1-to-1, the fader recipe from the Knob Deck preset.
+private struct MidiInputDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+
+    @ViewBuilder
+    private func content(at t: TimeInterval) -> some View {
+        let level = (sin(t / 1.4) + 1) / 2
+        let pointer = Angle(degrees: -135 + 270 * level)
+
+        HStack(spacing: 26) {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 3)
+                        .frame(width: 74, height: 74)
+                    Circle()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(width: 46, height: 46)
+                    Capsule()
+                        .fill(Color.pink)
+                        .frame(width: 4, height: 22)
+                        .offset(y: -16)
+                        .rotationEffect(pointer)
+                }
+                Text("CC 7 · \(Int(level * 127))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Image(systemName: "arrow.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 8) {
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(width: 30, height: 84)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.pink.opacity(0.85))
+                        .frame(width: 30, height: max(6, 84 * level))
+                }
+                HStack(spacing: 3) {
+                    Image(systemName: level < 0.05 ? "speaker.slash.fill"
+                          : level < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
+                    Text("\(Int(level * 100))%")
+                        .monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+
+/// System Functions demo: a pad press ripples into media, volume, and
+/// brightness glyphs lighting up in turn.
+private struct SystemControlDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let icons = ["playpause.fill", "speaker.wave.2.fill",
+                                "sun.max.fill", "rectangle.3.group.fill",
+                                "sparkles.rectangle.stack.fill", "lock.fill"]
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+
+    @ViewBuilder
+    private func content(at t: TimeInterval) -> some View {
+        let active = Int(t.truncatingRemainder(dividingBy: Double(Self.icons.count) * 0.8) / 0.8)
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                ForEach(Array(Self.icons.enumerated()), id: \.offset) { index, icon in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 9)
+                            .fill(index == active ? Color.teal.opacity(0.25)
+                                                  : Color.secondary.opacity(0.12))
+                        Image(systemName: icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(index == active ? Color.teal : Color.secondary)
+                    }
+                    .frame(width: 40, height: 40)
+                    .scaleEffect(index == active ? 1.12 : 1.0)
+                    .animation(.spring(duration: 0.25), value: active)
+                }
+            }
+            Text("Any input, any system function")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+
+/// Siri Shortcuts demo: one pad press ripples into a rotating set of
+/// automation outcomes.
+private struct SiriShortcutsDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let outcomes: [(String, String)] = [
+        ("moon.fill", "Do Not Disturb"), ("timer", "Start a timer"),
+        ("lightbulb.fill", "Scene: Movie night"), ("house.fill", "I'm home"),
+    ]
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+    @ViewBuilder private func content(at t: TimeInterval) -> some View {
+        let step = Int(t.truncatingRemainder(dividingBy: Double(Self.outcomes.count) * 1.6) / 1.6)
+        let pulse = t.truncatingRemainder(dividingBy: 1.6) < 0.25
+        HStack(spacing: 22) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(pulse ? Color.indigo.opacity(0.35) : Color.secondary.opacity(0.14))
+                    .frame(width: 54, height: 54)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(pulse ? Color.indigo : Color.secondary)
+            }
+            Image(systemName: "arrow.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(Self.outcomes.enumerated()), id: \.offset) { index, item in
+                    HStack(spacing: 8) {
+                        Image(systemName: item.0)
+                            .frame(width: 18)
+                        Text(item.1)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(index == step ? Color.indigo : Color.secondary.opacity(0.6))
+                    .fontWeight(index == step ? .semibold : .regular)
+                }
+            }
+        }
+    }
+}
+
+/// Keyboard-as-input demo: a key on a mini keyboard lights up and fires an
+/// action, cycling across keys.
+private struct InputRemapDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3"]
+    private static let actions = ["bolt.fill", "scissors", "doc.on.doc.fill",
+                                  "arrow.uturn.backward", "play.fill", "camera.fill",
+                                  "speaker.wave.2.fill", "moon.fill", "sparkles"]
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+    @ViewBuilder private func content(at t: TimeInterval) -> some View {
+        let active = Int(t.truncatingRemainder(dividingBy: 9 * 0.7) / 0.7)
+        HStack(spacing: 24) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 5), count: 3), spacing: 5) {
+                ForEach(0..<9, id: \.self) { index in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(index == active ? Color.orange.opacity(0.4) : Color.secondary.opacity(0.16))
+                        Text(Self.keys[index])
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(index == active ? Color.orange : Color.secondary)
+                    }
+                    .frame(width: 26, height: 26)
+                }
+            }
+            Image(systemName: "arrow.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.16))
+                    .frame(width: 52, height: 52)
+                Image(systemName: Self.actions[active])
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+}
+
+/// Hold & double-tap demo: one button, three gestures, three outputs.
+private struct HoldDoubleTapDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let phases: [(String, String, String)] = [
+        ("Press", "arrow.up.circle.fill", "Jump"),
+        ("Hold", "figure.run", "Sprint"),
+        ("Double-tap", "backpack.fill", "Inventory"),
+    ]
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+    @ViewBuilder private func content(at t: TimeInterval) -> some View {
+        let step = Int(t.truncatingRemainder(dividingBy: 3 * 1.5) / 1.5)
+        let phase = Self.phases[step]
+        HStack(spacing: 26) {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.28))
+                        .frame(width: 54, height: 54)
+                    Text("A")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.blue)
+                }
+                Text(phase.0)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 84)
+            }
+            Image(systemName: "arrow.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 6) {
+                Image(systemName: phase.1)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(.blue)
+                Text(phase.2)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 90)
+        }
+    }
+}
+
+/// Per-app auto-switch demo: the frontmost app flips and the active preset
+/// follows it.
+private struct AppAutoSwitchDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+    @ViewBuilder private func content(at t: TimeInterval) -> some View {
+        let gameFront = Int(t.truncatingRemainder(dividingBy: 4) / 2) == 0
+        VStack(spacing: 14) {
+            HStack(spacing: 18) {
+                appTile("gamecontroller.fill", "Game", front: gameFront)
+                appTile("music.note", "DAW", front: !gameFront)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(gameFront ? "FPS preset active" : "MIDI preset active")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.green.opacity(0.14)))
+        }
+    }
+    @ViewBuilder private func appTile(_ icon: String, _ name: String, front: Bool) -> some View {
+        VStack(spacing: 5) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11)
+                    .fill(front ? Color.green.opacity(0.25) : Color.secondary.opacity(0.12))
+                    .frame(width: 48, height: 48)
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(front ? Color.green : Color.secondary)
+            }
+            Text(name)
+                .font(.caption2)
+                .foregroundStyle(front ? .primary : .secondary)
+        }
+        .scaleEffect(front ? 1.08 : 1.0)
+        .animation(.spring(duration: 0.3), value: front)
+    }
+}
+
+/// Cursor regions demo: the pointer glides into a dashed region and a key
+/// fires.
+private struct CursorRegionsDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion || AppA11y.reduceMotion)) { context in
+            content(at: context.date.timeIntervalSinceReferenceDate)
+        }
+    }
+    @ViewBuilder private func content(at t: TimeInterval) -> some View {
+        let phase = (sin(t * 1.1) + 1) / 2          // 0...1 sweep
+        let inside = phase > 0.62
+        HStack(spacing: 24) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.secondary.opacity(0.08))
+                    .frame(width: 150, height: 86)
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(inside ? Color.purple : Color.secondary.opacity(0.5),
+                                  style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.purple.opacity(inside ? 0.18 : 0.04))
+                    )
+                    .frame(width: 56, height: 40)
+                    .offset(x: 84, y: 36)
+                Image(systemName: "cursorarrow")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(inside ? Color.purple : Color.secondary)
+                    .offset(x: 14 + phase * 92, y: 18 + phase * 36)
+            }
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(inside ? Color.purple.opacity(0.3) : Color.secondary.opacity(0.12))
+                        .frame(width: 44, height: 44)
+                    Text("M")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(inside ? Color.purple : Color.secondary)
+                }
+                Text(inside ? "Key fires" : "Waiting")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

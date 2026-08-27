@@ -241,6 +241,7 @@ enum SlotInputKind: String, Codable, Hashable, CaseIterable {
     case keyboard   // bound-keys chip map
     case touchpad   // touchpad surface + regions + finger trails
     case mouse      // bound mouse buttons / axes
+    case midi       // MIDI instrument: keys, knobs, wheels, event log
 }
 
 /// A joystick mapping group (one physical controller's bindings)

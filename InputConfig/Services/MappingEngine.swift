@@ -58,6 +58,10 @@ class MappingEngine: ObservableObject {
 
     // Toggle mode state: tracks which bindings are currently toggled on
     private var toggleStates: [String: Bool] = [:]
+    /// Fader engagement per absolute-volume binding: resting position at
+    /// activation, and whether the user has moved the control since.
+    private var faderBaseline: [UUID: Float] = [:]
+    private var faderEngaged: Set<UUID> = []
     // Turbo state: tracks last fire time for turbo bindings
     /// Last fire time per turbo binding, expressed as CACurrentMediaTime
     /// seconds (monotonic, allocation-free). Was previously [String: Date]
@@ -373,6 +377,14 @@ class MappingEngine: ObservableObject {
             log("MIDI input opened for this preset")
         }
 
+        // Fader (absolute volume) engagement resets on every activation:
+        // the volume must never jump to wherever a knob happens to be
+        // sitting. Each fader binding re-arms below by observing its
+        // control's resting position and engaging only once the user
+        // actually moves it.
+        faderBaseline.removeAll()
+        faderEngaged.removeAll()
+
         // Push the preset's light-bar override (if any) so every
         // light-capable controller flashes the preset's color while it's
         // active. We apply temporarily - the slot's stored default color is
@@ -634,6 +646,8 @@ class MappingEngine: ObservableObject {
 
         activeStates.removeAll()
         activeInputs.removeAll()
+        faderBaseline.removeAll()
+        faderEngaged.removeAll()
         activePreset = nil
         log("Engine stopped")
         // Final flush so the user sees the stop event in the log view.
@@ -836,7 +850,8 @@ class MappingEngine: ObservableObject {
                         }
                     }
                     // Keep firing continuous outputs while toggled on
-                    if toggleStates[bindKey] == true, let s = state {
+                    if toggleStates[bindKey] == true,
+                       let s = state ?? (binding.input.type == .midi ? ControllerState() : nil) {
                         fireContinuousOutputs(binding.outputs, input: binding.input, state: s, binding: binding)
                     }
                 } else if binding.turboEnabled == true {
@@ -871,7 +886,7 @@ class MappingEngine: ObservableObject {
                             }
                             turboTimestamps[bindKey] = nowMonotonic
                         }
-                        if let s = state {
+                        if let s = state ?? (binding.input.type == .midi ? ControllerState() : nil) {
                             fireContinuousOutputs(binding.outputs, input: binding.input, state: s, binding: binding)
                         }
                     } else if wasActive {
@@ -938,9 +953,21 @@ class MappingEngine: ObservableObject {
                            macrosInFlight.contains(bindKey) {
                             macroCancelRequests.insert(bindKey)
                         }
-                    } else if isActive, !usesDeferred, let s = state {
+                    } else if isActive, !usesDeferred,
+                              let s = state ?? (binding.input.type == .midi ? ControllerState() : nil) {
                         // Deferred bindings skip continuous firing: which
                         // action this press means is not decided yet.
+                        // MIDI bindings pass an empty controller state:
+                        // their analog value comes from midiAxisValue, so
+                        // a dial keeps scrolling with no gamepad attached.
+                        fireContinuousOutputs(binding.outputs, input: binding.input, state: s, binding: binding)
+                    } else if !isActive, !usesDeferred,
+                              binding.outputs.contains(where: { $0.type == .absoluteVolume }),
+                              let s = state ?? (binding.input.type == .midi ? ControllerState() : nil) {
+                        // Fader outputs follow the control's position even
+                        // while the binding reads "inactive": a knob at 20%
+                        // is below every press threshold but the volume
+                        // should still be 20%.
                         fireContinuousOutputs(binding.outputs, input: binding.input, state: s, binding: binding)
                     }
                 }
@@ -1329,17 +1356,48 @@ class MappingEngine: ObservableObject {
             return service.consumeProgramChange(input.index, channel: channel, deviceID: device)
 
         case .cc:
-            // A knob at rest reads its last value, so a plain "CC moved"
-            // binding uses the halfway point as the press threshold -
-            // that matches how a sustain pedal or a switch-style CC
-            // (0 = off, 127 = on) behaves, which is the common case.
-            guard let value = service.ccValue(input.index, channel: channel, deviceID: device) else {
-                return false
-            }
-            let normalized = Float(value) / 127.0
-            switch input.axisDirection {
-            case .negative: return normalized < 0.5
-            default:        return normalized >= 0.5
+            switch input.midiCCMode ?? .threshold {
+            case .threshold:
+                // A knob at rest reads its last value, so a plain "CC moved"
+                // binding uses the halfway point as the press threshold -
+                // that matches how a sustain pedal or a switch-style CC
+                // (0 = off, 127 = on) behaves, which is the common case.
+                guard let value = service.ccValue(input.index, channel: channel, deviceID: device) else {
+                    return false
+                }
+                let normalized = Float(value) / 127.0
+                switch input.axisDirection {
+                case .negative: return normalized < 0.5
+                default:        return normalized >= 0.5
+                }
+
+            case .centered:
+                // Dial mode: centre (64) is zero and the binding behaves
+                // like a stick axis, so the same deadzone that gates a
+                // stick gates the dial. The + direction is the right half
+                // of the knob, - the left half.
+                guard let raw = service.ccValue(input.index, channel: channel, deviceID: device) else {
+                    return false
+                }
+                var v = max(-1, min(1, Float(raw - 64) / 63.5))
+                if binding?.invertAxis == true { v = -v }
+                switch input.axisDirection {
+                case .positive: return v > threshold
+                case .negative: return v < -threshold
+                case .none:     return abs(v) > threshold
+                }
+
+            case .relative:
+                // Turn mode: every few raw units of travel in the bound
+                // direction is one step, delivered as a press frame
+                // followed by a forced release frame so consecutive
+                // steps arrive as distinct key presses.
+                let up = (input.axisDirection ?? .positive) != .negative
+                let key = (binding?.id.uuidString ?? "scan") + (up ? "+" : "-")
+                let step = max(1, min(32, input.midiTurnStep ?? 4))
+                return service.consumeRelativeStep(cc: input.index, channel: channel,
+                                                   deviceID: device, up: up,
+                                                   consumerKey: key, stepUnits: step)
             }
 
         case .pitchBend:
@@ -1357,6 +1415,44 @@ class MappingEngine: ObservableObject {
         }
     }
 
+    /// Absolute 0...1 position of a continuous input, for outputs that
+    /// FOLLOW the control rather than react to it (system volume). A CC
+    /// knob reports its raw position regardless of knob mode; the pitch
+    /// wheel and full-range axes map -1...1 onto 0...1; triggers and
+    /// aftertouch are naturally 0...1 already.
+    private func absolutePosition(for input: InputEvent, state: ControllerState) -> Float? {
+        switch input.type {
+        case .midi:
+            let service = MIDIInputService.shared
+            switch input.midiKind ?? .note {
+            case .cc:
+                guard let v = service.ccValue(input.index, channel: input.midiChannel,
+                                              deviceID: input.midiDeviceID) else { return nil }
+                return Float(v) / 127.0
+            case .pitchBend:
+                let v = service.pitchBendValue(channel: input.midiChannel,
+                                               deviceID: input.midiDeviceID)
+                return (v + 1) / 2
+            case .aftertouch:
+                return Float(service.aftertouchValue(channel: input.midiChannel,
+                                                     deviceID: input.midiDeviceID)) / 127.0
+            case .note, .programChange:
+                return nil
+            }
+        case .axis:
+            guard var v = state.axes[input.index] else { return nil }
+            switch input.axisDirection {
+            case .positive: return max(0, min(1, v))
+            case .negative: return max(0, min(1, -v))
+            case .none:
+                v = max(-1, min(1, v))
+                return (v + 1) / 2
+            }
+        default:
+            return nil
+        }
+    }
+
     /// Continuous value for a `.midi` input, normalized to the same
     /// -1...1 range the axis outputs (mouse motion, scroll) expect.
     /// Returns nil for message families that aren't continuous.
@@ -1367,7 +1463,18 @@ class MappingEngine: ObservableObject {
         switch input.midiKind ?? .note {
         case .cc:
             guard let v = service.ccValue(input.index, channel: channel, deviceID: device) else { return nil }
-            return Float(v) / 127.0
+            switch input.midiCCMode ?? .threshold {
+            case .centered:
+                // Signed dial position, -1 at full left through +1 at
+                // full right, centre = 0.
+                return max(-1, min(1, Float(v - 64) / 63.5))
+            case .threshold:
+                return Float(v) / 127.0
+            case .relative:
+                // Turn mode has no standing position; it is consumed as
+                // discrete steps in checkMIDIInput.
+                return nil
+            }
         case .pitchBend:
             return service.pitchBendValue(channel: channel, deviceID: device)
         case .aftertouch:
@@ -1439,6 +1546,19 @@ class MappingEngine: ObservableObject {
             case .appAction:
                 // Dispatched above, before the pause gate.
                 break
+
+            case .absoluteVolume:
+                // Follows the input continuously via fireContinuousOutputs;
+                // a press edge has no meaning for a fader.
+                break
+
+            case .systemAction:
+                // Fire on press only - a system function has no release
+                // half. Hold + turbo and Turn-mode knobs repeat naturally
+                // because each pulse is a fresh press edge.
+                if press, let kind = output.systemActionKind {
+                    SystemActionService.shared.perform(kind, parameter: output.text)
+                }
 
             case .mouseMotion, .mouseWheel:
                 break
@@ -1739,7 +1859,7 @@ class MappingEngine: ObservableObject {
 
                 // Variable sensitivity defaults to true for axis input (gives natural feel).
                 // When false, output fires at full speed once the axis crosses the deadzone.
-                let useVariable = binding?.variableSensitivity ?? (input.type == .axis || input.type == .touchpad || input.type == .motion)
+                let useVariable = binding?.variableSensitivity ?? (input.type == .axis || input.type == .touchpad || input.type == .motion || input.type == .midi)
 
                 var magnitude: Float = 1.0
                 var signedMagnitude: Float = 1.0   // for touchpad / motion: sign indicates direction of motion
@@ -1806,6 +1926,25 @@ class MappingEngine: ObservableObject {
                     magnitude = abs(signedMagnitude)
                 }
 
+                // MIDI dials feed the analog mouse path the way a stick
+                // does: midiAxisValue is signed for centred sources, the
+                // half-axis direction filters which side of the dial this
+                // binding responds to, and the shared deadzone remap plus
+                // sensitivity curve shape the response.
+                if useVariable, input.type == .midi, var v = midiAxisValue(input) {
+                    if binding?.invertAxis == true { v = -v }
+                    switch input.axisDirection {
+                    case .positive: if v < 0 { v = 0 }
+                    case .negative: if v > 0 { v = 0 }
+                    case .none: break
+                    }
+                    let rawMag = min(abs(v), 1.0)
+                    magnitude = remapMagnitude(rawMag, binding: binding)
+                    if let curve = binding?.sensitivityCurve {
+                        magnitude = abs(curve.apply(magnitude))
+                    }
+                }
+
                 let scaledSpeed: Float
                 if input.type == .touchpad || input.type == .motion {
                     // signedMagnitude already encodes direction + speed;
@@ -1834,12 +1973,27 @@ class MappingEngine: ObservableObject {
                 guard let axis = output.mouseAxis, let dir = output.mouseDirection else { continue }
                 let speed = output.speed ?? 6
 
-                let useVariable = binding?.variableSensitivity ?? (input.type == .axis)
+                let useVariable = binding?.variableSensitivity ?? (input.type == .axis || input.type == .midi)
 
                 var magnitude: Float = 1.0
                 if useVariable, input.type == .axis, var axisValue = state.axes[input.index] {
                     if binding?.invertAxis == true { axisValue = -axisValue }
                     let rawMag = min(abs(axisValue), 1.0)
+                    magnitude = remapMagnitude(rawMag, binding: binding)
+                    if let curve = binding?.sensitivityCurve {
+                        magnitude = abs(curve.apply(magnitude))
+                    }
+                }
+                // MIDI dial: scroll speed proportional to how far off
+                // centre the knob sits, same shaping as the mouse path.
+                if useVariable, input.type == .midi, var v = midiAxisValue(input) {
+                    if binding?.invertAxis == true { v = -v }
+                    switch input.axisDirection {
+                    case .positive: if v < 0 { v = 0 }
+                    case .negative: if v > 0 { v = 0 }
+                    case .none: break
+                    }
+                    let rawMag = min(abs(v), 1.0)
                     magnitude = remapMagnitude(rawMag, binding: binding)
                     if let curve = binding?.sensitivityCurve {
                         magnitude = abs(curve.apply(magnitude))
@@ -1857,6 +2011,30 @@ class MappingEngine: ObservableObject {
                 case (.horizontal, .negative): pendingScrollDeltaX -= scaledSpeed
                 case (.vertical, .positive): pendingScrollDeltaY += scaledSpeed
                 case (.vertical, .negative): pendingScrollDeltaY -= scaledSpeed
+                }
+
+            case .absoluteVolume:
+                // Fader semantics: the system volume tracks the input's
+                // absolute position - but only once the user MOVES the
+                // control. On activation the control's resting position is
+                // recorded as a baseline and nothing happens; the fader
+                // engages when the position travels 2% from that baseline,
+                // so activating a preset never yanks the volume to
+                // wherever a knob was left. Intentional movement is the
+                // consent. The setter drops sub-epsilon changes, so a
+                // resting control costs nothing per frame.
+                if let position = absolutePosition(for: input, state: state) {
+                    if let id = binding?.id {
+                        if let baseline = faderBaseline[id] {
+                            if !faderEngaged.contains(id), abs(position - baseline) > 0.02 {
+                                faderEngaged.insert(id)
+                            }
+                        } else {
+                            faderBaseline[id] = position
+                        }
+                        guard faderEngaged.contains(id) else { continue }
+                    }
+                    SystemVolumeService.shared.setVolume(position)
                 }
 
             case .midiCC:
@@ -2114,3 +2292,4 @@ final class DriveModeProcessor {
         pwmTick[code] = (t + 1) % period
     }
 }
+

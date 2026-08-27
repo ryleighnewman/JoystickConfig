@@ -11,7 +11,13 @@ struct SettingsView: View {
     /// `TabView`'s tab bar clips against a sheet's rounded top corners on
     /// macOS, leaving the tab pills half-cut. A plain segmented Picker sits
     /// safely inside the sheet's content area.
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab
+
+    /// Which tab the sheet opens on. The homepage About button passes
+    /// .about; everywhere else defaults to General.
+    init(initialTab: SettingsTab = .general) {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     /// Mirrors the same `@AppStorage` key used by the main app scene so
     /// flipping this toggle immediately hides or shows the menu bar icon.
@@ -51,6 +57,12 @@ struct SettingsView: View {
     /// its per-press updates re-render only this sheet, never the root window.
     @ObservedObject private var pressLog = PhysicalPressLogStore.shared
     @State private var showingCursorRegions = false
+
+    // App-level accessibility preferences (Settings > General > Accessibility).
+    @AppStorage("InputConfig.a11y.textSize") private var a11yTextSize = 0
+    @AppStorage("InputConfig.a11y.boldText") private var a11yBoldText = false
+    @AppStorage("InputConfig.a11y.reduceTransparency") private var a11yReduceTransparency = false
+    @AppStorage("InputConfig.a11y.reduceMotion") private var a11yReduceMotion = false
     @State private var showingStickRegions = false
 
     enum SettingsTab: String, CaseIterable, Identifiable {
@@ -123,7 +135,7 @@ struct SettingsView: View {
         // getting squeezed into Form's narrow two-column layout.
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                section(title: "Accessibility") {
+                section(title: "Accessibility Permission") {
                     HStack(spacing: 8) {
                         Image(systemName: accessibility.isTrusted ? "circle.fill" : "exclamationmark.triangle.fill")
                             .font(accessibility.isTrusted ? .system(size: 9) : .body)
@@ -152,6 +164,49 @@ struct SettingsView: View {
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+
+                section(title: "Accessibility") {
+                    HStack(spacing: 10) {
+                        Text("Text Size")
+                            .font(.callout)
+                        Picker("", selection: $a11yTextSize) {
+                            Text("Default").tag(0)
+                            Text("Large").tag(1)
+                            Text("Extra Large").tag(2)
+                            Text("Huge").tag(3)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 340)
+                        .accessibilityLabel("Text size")
+                        Spacer()
+                    }
+                    Text("Scales every label, button, and row in the app. Layouts reflow to fit.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Bold Text", isOn: $a11yBoldText)
+                        .toggleStyle(.switch)
+                    Text("Renders all text at a heavier weight for stronger contrast against the background.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Reduce Transparency", isOn: $a11yReduceTransparency)
+                        .toggleStyle(.switch)
+                    Text("Replaces the frosted-glass window and sheet backgrounds with solid ones, so text never sits over whatever is behind the window.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Reduce Motion", isOn: $a11yReduceMotion)
+                        .toggleStyle(.switch)
+                    Text("Stops the decorative animations - welcome-screen demos, the About glow, sliding transitions - without touching the live visualizer's real data.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("InputConfig always honors the system-wide settings in System Settings > Accessibility as well. These switches apply to this app only.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
 
                 section(title: "Startup") {
@@ -984,168 +1039,13 @@ struct SettingsView: View {
 
     private var aboutTab: some View {
         ScrollView {
-            VStack(spacing: 22) {
-                // App identity card - icon, name, tagline, version.
-                VStack(spacing: 12) {
-                    if let appIcon = NSApp.applicationIconImage {
-                        Image(nsImage: appIcon)
-                            .resizable()
-                            .frame(width: 96, height: 96)
-                    }
-                    Text("InputConfig")
-                        .font(.largeTitle.weight(.semibold))
-                    Text("Universal Input Mapping for macOS")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Version \(bundleShortVersion) · Build \(bundleBuildNumber)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    Text("An accessible way to control your Mac, mapping controllers, keyboards, and mice to keyboard, mouse, MIDI, and more, anywhere on macOS.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 22)
-                .padding(.horizontal, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.secondary.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                )
-
-                // Creator + links.
-                VStack(spacing: 6) {
-                    Text("Created by Ryleigh Newman")
-                        .font(.body.weight(.medium))
-                    HStack(spacing: 12) {
-                        Link(destination: URL(string: "https://ryleighnewman.com")!) {
-                            Label("ryleighnewman.com", systemImage: "link")
-                                .font(.callout)
-                        }
-                        Link(destination: URL(string: "https://github.com/ryleighnewman/InputConfig")!) {
-                            Label("Open Source", systemImage: "chevron.left.forwardslash.chevron.right")
-                                .font(.callout)
-                        }
-                    }
-                    Text("Contact me if you ever need anything.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.secondary.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                )
-
-                // Changelog. Same card treatment as the sections above; the
-                // row opens a popover listing every version, newest first.
-                Button { showChangelog = true } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "sparkles")
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 22)
-                        Text("View Changelog")
-                            .font(.callout)
-                        Spacer(minLength: 0)
-                        Text(Changelog.currentVersion)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                        Image(systemName: "chevron.right")
-                            .imageScale(.small)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.secondary.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                )
-                .popover(isPresented: $showChangelog, arrowEdge: .bottom) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("What's new").font(.headline)
-                            ForEach(Changelog.entries) { entry in
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(entry.version).font(.subheadline.weight(.semibold))
-                                    ForEach(entry.points, id: \.self) { point in
-                                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                            Text("\u{2022}").foregroundStyle(.secondary)
-                                            Text(point).font(.callout)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .padding(16)
-                        .frame(width: 380, alignment: .leading)
-                    }
-                    .frame(maxHeight: 460)
-                }
-                .accessibilityLabel("View changelog, current version \(Changelog.currentVersion)")
-
-                // Also by me: YapToText. Mirrors the shoutout YapToText's
-                // About page gives InputConfig, so the two apps point at
-                // each other.
-                HStack(spacing: 12) {
-                    Image("YapToTextIcon")
-                        .resizable().scaledToFit()
-                        .frame(width: 44, height: 44)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("YapToText").font(.callout.weight(.semibold))
-                        Text("Also by me: a free, on-device dictation tool that types what you say into any app.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    Link(destination: URL(string: "https://apps.apple.com/us/app/yaptotext/id6786382289?mt=12")!) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.up.forward.app")
-                            Text("App Store")
-                        }
-                        .font(.callout)
-                    }
-                }
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.secondary.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                )
-
-                // Tip jar. Promotional CTA, not a form control, so it takes the
-                // hero glass treatment rather than a bordered form button.
-                Button {
-                    TipJarWindowController.shared.show()
-                } label: {
-                    Label("Support Development", systemImage: "heart.fill")
-                        .frame(minWidth: 200)
-                }
-                .buttonStyle(GlassCTAButton(tint: .pink))
+            VStack(spacing: 18) {
+                aboutHero
+                aboutChangelogRow
+                aboutStory
+                aboutSourceAndSupport
+                aboutCommunityRow
+                aboutSiblingApp
 
                 // Footer copyright.
                 Text("Copyright \u{00A9} 2026 Ryleigh Newman. All rights reserved.")
@@ -1154,6 +1054,226 @@ struct SettingsView: View {
                     .padding(.top, 6)
             }
             .padding(20)
+        }
+    }
+
+    /// Shared card chrome for the About rows, matching the rest of Settings.
+    @ViewBuilder
+    private func aboutCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+            )
+    }
+
+    // MARK: About rows (mirrors YapToText's About page)
+
+    /// The hero: the app icon breathing over a soft accent glow, then the
+    /// name, version, and tagline. Same treatment as YapToText's About.
+    private var aboutHero: some View {
+        VStack(spacing: 12) {
+            TimelineView(.animation(minimumInterval: 1.0 / 10.0, paused: AppA11y.reduceMotion)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let glow = 0.5 + 0.5 * sin(t * 0.8)
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.14 + 0.10 * glow))
+                        .frame(width: 116, height: 116)
+                        .blur(radius: 28)
+                    if let appIcon = NSApp.applicationIconImage {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .frame(width: 96, height: 96)
+                    }
+                }
+                .frame(width: 110, height: 110)
+            }
+            VStack(spacing: 4) {
+                Text("InputConfig").font(.largeTitle)
+                Text("Version \(bundleShortVersion) (\(bundleBuildNumber))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Text("A free accessibility tool that maps any input device to anything on your Mac.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 380)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var aboutChangelogRow: some View {
+        aboutCard {
+            Button { showChangelog = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 22)
+                    Text("View Changelog")
+                        .font(.callout)
+                    Spacer(minLength: 0)
+                    Text(Changelog.currentVersion)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .popover(isPresented: $showChangelog, arrowEdge: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("What's new").font(.headline)
+                    ForEach(Changelog.entries) { entry in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(entry.version).font(.subheadline.weight(.semibold))
+                            ForEach(entry.points, id: \.self) { point in
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text("\u{2022}").foregroundStyle(.secondary)
+                                    Text(point).font(.callout)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+                .frame(width: 380, alignment: .leading)
+            }
+            .frame(maxHeight: 460)
+        }
+        .accessibilityLabel("View changelog, current version \(Changelog.currentVersion)")
+    }
+
+    private var aboutStory: some View {
+        aboutCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Why did I build this?")
+                    .font(.headline)
+                Text("I built InputConfig as an accessibility tool, simply because I needed one. My hands don't work that well, which makes a keyboard and mouse difficult, so I depend on other devices to control my Mac.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("The mapping tools out there were either expensive, missing important features, or not really built for the people using them.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("So I made the input mapper of my dreams: free, endlessly customizable, and happy to treat any device - a game controller, a MIDI keyboard, a spare mouse - as a first-class way to drive a Mac. I hope it's helpful for you too. If you run into any problems, or have suggestions, please let me know.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ryleigh Newman").font(.callout.weight(.semibold))
+                    Link("ryleighnewman.com", destination: URL(string: "https://ryleighnewman.com")!)
+                        .font(.caption)
+                }
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Open source + support, one row of two equal-height boxes with the
+    /// Donate button pinned right - same layout as YapToText's About.
+    private var aboutSourceAndSupport: some View {
+        let boxHeight: CGFloat = 76
+        return HStack(spacing: 12) {
+            Link(destination: URL(string: "https://github.com/ryleighnewman/InputConfig")!) {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 22)
+                    Text("View the source code on GitHub")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.forward").imageScale(.small).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
+            .frame(height: boxHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+            )
+
+            HStack(spacing: 10) {
+                Image(systemName: "heart.fill")
+                    .foregroundStyle(.pink)
+                    .frame(width: 22)
+                Text("Free forever. A tip is never expected, but would truly mean the world.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 10)
+                Button("Donate") {
+                    TipJarWindowController.shared.show()
+                }
+                .buttonStyle(.solid)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
+            .frame(height: boxHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+            )
+        }
+    }
+
+    private var aboutCommunityRow: some View {
+        aboutCard {
+            HStack(spacing: 10) {
+                Image(systemName: "person.2.fill")
+                    .foregroundStyle(.orange)
+                    .frame(width: 22)
+                Text("To everyone who suggested features, tested rough builds, and told me exactly where it hurt: this app is shaped by you. Without this community, InputConfig wouldn't exist. Thank you.")
+                    .font(.callout).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var aboutSiblingApp: some View {
+        aboutCard {
+            HStack(spacing: 12) {
+                Image("YapToTextIcon")
+                    .resizable().scaledToFit()
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("YapToText").font(.callout.weight(.semibold))
+                    Text("InputConfig is built on the same foundation as YapToText, my free on-device dictation tool.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Link(destination: URL(string: "https://apps.apple.com/us/app/yaptotext/id6786382289?mt=12")!) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.forward.app")
+                        Text("App Store")
+                    }
+                    .font(.callout)
+                }
+            }
         }
     }
 }
@@ -1209,6 +1329,25 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.3", points: [
+            "Knob modes for MIDI dials: Dial mode treats the centre of the knob as zero, so scrolling and mouse motion speed up the further you turn, with a deadzone to stop at centre",
+            "Turn mode fires a nudge for every few steps of rotation, clockwise or counterclockwise, built for volume, brightness, and stepped scrolling",
+            "Both modes work with the sensitivity curves, deadzone settings, and variable speed the analog sticks already use",
+            "System volume as a fader: a new output that makes the Mac's volume follow a knob, the pitch wheel, aftertouch, or a controller trigger 1-to-1",
+            "Turn Step setting per binding: Fine, Normal, Coarse, or Chunky nudge sensitivity for Turn mode",
+            "The volume fader only takes over once you actually move the control, so activating a preset never jumps the volume",
+            "New built-in preset MIDI: Knob Deck and a new welcome-screen demo showing MIDI devices driving the Mac",
+            "System Function outputs: volume, mute, media keys, brightness, Mission Control, Launchpad, Spotlight, lock screen, screenshot, Siri Shortcuts, and opening any app or URL",
+            "New built-in preset MIDI: Media Deck - pads and knobs running media keys, volume steps, and brightness",
+            "A What's New popup after each update, so new features are never silently installed",
+            "The YapToText shoutout now lives at the bottom of the welcome screen with a one-click App Store link",
+            "An About button on the welcome screen opens the redesigned About page: the story behind the app, the changelog, source code, and support",
+            "An Accessibility area in Settings: app-wide text size, bold text, reduced transparency, and reduced motion",
+            "MIDI is now a full Live Visualizer template: a seven-octave velocity-shaded keyboard, named knob dials, pitch bend and aftertouch meters, a channel strip, and a live event log - switchable like any layout and automatic for MIDI presets",
+            "Five new welcome-screen cards: Siri Shortcuts, Keyboard & Mouse as Input, Hold & Double-Tap, Per-App Auto-Switch, and Cursor Regions, ordered by importance",
+            "The version number now shows in the menu bar popover",
+        ]),
+
         Entry(version: "1.2.1", points: [
             "Fixes MIDI devices not appearing as an option when creating a binding",
             "MIDI now works with no game controller connected, so a MIDI keyboard or pad controller can drive your Mac on its own",
@@ -1273,4 +1412,73 @@ enum Changelog {
             "DualSense light bar control and haptic feedback",
         ]),
     ]
+}
+
+
+// MARK: - What's New popup
+
+/// Shown once after every app update: the changelog entry for the version
+/// the user just landed on, so new features are never silently installed.
+/// ContentView drives presentation by comparing the last-seen version in
+/// UserDefaults against the bundle's current version.
+struct WhatsNewView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    /// The entry to present: the newest changelog entry whose version
+    /// matches the running short version, falling back to the newest.
+    private var entry: Changelog.Entry {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        return Changelog.entries.first(where: { $0.version == short }) ?? Changelog.entries[0]
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .padding(.top, 26)
+                Text("What's New in InputConfig")
+                    .font(.title2.weight(.bold))
+                Text("Version \(entry.version)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(entry.points, id: \.self) { point in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.tint)
+                            Text(point)
+                                .font(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.horizontal, 30)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 320)
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Continue")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .padding(.horizontal, 30)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
+        }
+        .frame(width: 480)
+    }
 }
